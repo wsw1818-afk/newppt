@@ -258,10 +258,8 @@ class DocumentExtractorV3:
                                               style="Accent.TButton")
         self.ppt_extract_button.pack(pady=10)
 
-        # 탭 활성화 시 자동 감지
+        # 탭 활성화 시 자동 감지 (초기 감지도 이 이벤트로 처리됨)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-        # 초기 감지
-        self.root.after(100, self.detect_open_ppt)
 
     def _setup_excel_tab(self):
         """Excel 탭 설정"""
@@ -1482,10 +1480,24 @@ class DocumentExtractorV3:
 
     def run(self):
         """프로그램 실행"""
+        # 초기 탭(PPT) 감지 - mainloop 전에 한 번만 실행
+        self.root.after(100, self._initial_detect)
         self.logger.log("메인 루프 시작")
         self.root.mainloop()
         self.logger.log("메인 루프 종료")
         self.logger.close()
+
+    def _initial_detect(self):
+        """초기 감지 (앱 시작 시 현재 탭)"""
+        current_tab = self.notebook.index(self.notebook.select())
+        if not self.tab_detected[current_tab]:
+            self.tab_detected[current_tab] = True
+            if current_tab == 0:
+                self.detect_open_ppt()
+            elif current_tab == 1:
+                self.detect_open_excel()
+            elif current_tab == 2:
+                self.detect_open_hwp()
 
 
 def check_dependencies():
