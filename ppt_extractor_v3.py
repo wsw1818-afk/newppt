@@ -373,7 +373,18 @@ class DocumentExtractorV3:
         notice_label.pack(pady=5)
 
     def _on_tab_changed(self, event):
-        """탭 변경 시 해당 문서 감지 (중복 감지 방지)"""
+        """탭 변경 시 해당 문서 감지 (중복 감지 방지, debounce 적용)"""
+        # 기존 예약된 감지가 있으면 취소
+        if hasattr(self, '_pending_detect') and self._pending_detect:
+            self.root.after_cancel(self._pending_detect)
+            self._pending_detect = None
+
+        # 50ms 후에 감지 실행 (debounce)
+        self._pending_detect = self.root.after(50, self._do_detect)
+
+    def _do_detect(self):
+        """실제 감지 실행"""
+        self._pending_detect = None
         current_tab = self.notebook.index(self.notebook.select())
 
         # 이미 감지 완료된 탭이면 스킵
@@ -1480,24 +1491,10 @@ class DocumentExtractorV3:
 
     def run(self):
         """프로그램 실행"""
-        # 초기 탭(PPT) 감지 - mainloop 전에 한 번만 실행
-        self.root.after(100, self._initial_detect)
         self.logger.log("메인 루프 시작")
         self.root.mainloop()
         self.logger.log("메인 루프 종료")
         self.logger.close()
-
-    def _initial_detect(self):
-        """초기 감지 (앱 시작 시 현재 탭)"""
-        current_tab = self.notebook.index(self.notebook.select())
-        if not self.tab_detected[current_tab]:
-            self.tab_detected[current_tab] = True
-            if current_tab == 0:
-                self.detect_open_ppt()
-            elif current_tab == 1:
-                self.detect_open_excel()
-            elif current_tab == 2:
-                self.detect_open_hwp()
 
 
 def check_dependencies():

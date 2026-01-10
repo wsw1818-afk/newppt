@@ -1,1 +1,1 @@
-🐛 중복 초기화 제거: after 호출 제거 및 _initial_detect 분리
+🐛 탭 변경 이벤트 debounce 적용으로 중복 감지 완전 해결
