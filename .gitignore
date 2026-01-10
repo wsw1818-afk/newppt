@@ -1,0 +1,19 @@
+# Build outputs
+build/
+dist/
+*.spec
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude settings
+.claude/
+
+# Executables
+*.exe
+
+# Temp files
+*.tmp
+*.log

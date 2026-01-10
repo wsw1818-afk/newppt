@@ -1,0 +1,4 @@
+pywin32
+python-pptx
+openpyxl
+pyinstaller
