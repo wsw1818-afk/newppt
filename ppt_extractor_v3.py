@@ -315,60 +315,44 @@ class DocumentExtractorV3:
         self.excel_extract_button.pack(pady=10)
 
     def _setup_hwp_tab(self):
-        """한글 탭 설정"""
+        """한글 탭 설정 - 클립보드 모드 전용 (DRM 환경 대응)"""
         tab = self.hwp_tab
 
-        # 문서 정보 프레임
-        info_frame = ttk.LabelFrame(tab, text="열린 한글 문서 선택", padding="10")
-        info_frame.pack(fill=tk.X, pady=5, padx=5)
+        # 안내 프레임
+        guide_frame = ttk.LabelFrame(tab, text="사용 방법", padding="15")
+        guide_frame.pack(fill=tk.X, pady=10, padx=5)
 
-        # 한글 선택 콤보박스
-        select_frame = ttk.Frame(info_frame)
-        select_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(select_frame, text="한글 선택:", width=12).pack(side=tk.LEFT)
-        self.hwp_combo = ttk.Combobox(select_frame, state="readonly", width=40)
-        self.hwp_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.hwp_combo.bind("<<ComboboxSelected>>", self.on_hwp_selected)
+        guide_text = """회사 DRM으로 인해 한글 문서에 직접 접근이 불가능합니다.
+아래 방법으로 텍스트를 추출할 수 있습니다:
 
-        # 페이지 수
-        page_frame = ttk.Frame(info_frame)
-        page_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(page_frame, text="페이지 수:", width=12).pack(side=tk.LEFT)
-        ttk.Label(page_frame, textvariable=self.hwp_page_count,
-                  font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT)
+  1단계: 한글에서 Ctrl+A (전체 선택)
+  2단계: Ctrl+C (복사)
+  3단계: 아래 저장 경로 선택 후 버튼 클릭"""
 
-        # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_hwp).pack(pady=(10, 0))
+        ttk.Label(guide_frame, text=guide_text, font=("맑은 고딕", 10),
+                  justify=tk.LEFT).pack(anchor=tk.W)
 
         # 저장 경로 프레임
-        path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
-        path_frame.pack(fill=tk.X, pady=5, padx=5)
+        path_frame = ttk.LabelFrame(tab, text="저장 위치", padding="10")
+        path_frame.pack(fill=tk.X, pady=10, padx=5)
 
         path_inner = ttk.Frame(path_frame)
         path_inner.pack(fill=tk.X)
         ttk.Entry(path_inner, textvariable=self.hwp_save_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(path_inner, text="찾아보기", command=self.browse_hwp_save_path).pack(side=tk.LEFT)
 
-        # 추출 옵션 프레임
-        option_frame = ttk.LabelFrame(tab, text="추출 옵션", padding="10")
-        option_frame.pack(fill=tk.X, pady=5, padx=5)
-
-        self.hwp_extract_mode = tk.StringVar(value="text")
-
-        ttk.Radiobutton(option_frame, text="텍스트만 추출 (서식 없음)",
-                        variable=self.hwp_extract_mode, value="text").pack(anchor=tk.W)
-        ttk.Radiobutton(option_frame, text="텍스트 + 표 (표 구조 유지)",
-                        variable=self.hwp_extract_mode, value="text_table").pack(anchor=tk.W)
-
-        # 추출 버튼
-        self.hwp_extract_button = ttk.Button(tab, text="새 한글 파일로 추출 (DRM 우회)",
+        # 추출 버튼 (크게)
+        self.hwp_extract_button = ttk.Button(tab, text="클립보드 내용을 파일로 저장",
                                               command=self.start_hwp_extraction,
                                               style="Accent.TButton")
-        self.hwp_extract_button.pack(pady=10)
+        self.hwp_extract_button.pack(pady=20)
+
+        # 클립보드 모드 고정
+        self.hwp_extract_mode = tk.StringVar(value="clipboard")
 
         # 안내 라벨
         notice_label = ttk.Label(tab,
-                                 text="※ 한글(HWP)은 텍스트/표만 추출 가능합니다.\n   이미지와 복잡한 서식은 지원되지 않습니다.",
+                                 text="※ 텍스트만 추출됩니다. 이미지/표 서식은 지원되지 않습니다.",
                                  font=("맑은 고딕", 9), foreground="gray")
         notice_label.pack(pady=5)
 
@@ -399,8 +383,7 @@ class DocumentExtractorV3:
             self.detect_open_ppt()
         elif current_tab == 1:  # Excel
             self.detect_open_excel()
-        elif current_tab == 2:  # 한글
-            self.detect_open_hwp()
+        # 한글 탭(2)은 클립보드 모드 전용이므로 COM 감지 안 함
 
     # ========== PPT 관련 메서드 ==========
 
@@ -442,7 +425,32 @@ class DocumentExtractorV3:
 
         try:
             self.logger.log("PowerPoint.Application 객체 연결 시도")
-            ppt = win32com.client.GetObject(Class="PowerPoint.Application")
+            ppt = None
+
+            # 방법 1: GetObject (이미 실행 중인 인스턴스에 연결)
+            try:
+                ppt = win32com.client.GetObject(Class="PowerPoint.Application")
+                self.logger.log("GetObject 연결 성공")
+            except Exception as e1:
+                self.logger.log(f"GetObject 실패: {str(e1)[:50]}")
+
+                # 방법 2: GetActiveObject (COM Moniker 사용)
+                try:
+                    ppt = win32com.client.GetActiveObject("PowerPoint.Application")
+                    self.logger.log("GetActiveObject 연결 성공")
+                except Exception as e2:
+                    self.logger.log(f"GetActiveObject 실패: {str(e2)[:50]}")
+
+                    # 방법 3: Dispatch로 연결 시도 (이미 실행 중이면 기존 인스턴스에 연결됨)
+                    try:
+                        ppt = win32com.client.Dispatch("PowerPoint.Application")
+                        self.logger.log("Dispatch 연결 성공")
+                    except Exception as e3:
+                        self.logger.log(f"Dispatch 실패: {str(e3)[:50]}")
+                        raise Exception("PowerPoint에 연결할 수 없습니다. PowerPoint를 먼저 실행해주세요.")
+
+            if ppt is None:
+                raise Exception("PowerPoint 연결 실패")
             ppt_count = ppt.Presentations.Count
             self.logger.log(f"PowerPoint 연결 성공, 열린 프레젠테이션 수: {ppt_count}")
 
@@ -538,7 +546,15 @@ class DocumentExtractorV3:
             save_path = self.ppt_save_path.get()
             self.root.after(0, lambda: self.status_text.set("원본 PPT 연결 중..."))
 
-            ppt_app = win32com.client.GetObject(Class="PowerPoint.Application")
+            # 다양한 방법으로 PPT 연결 시도
+            ppt_app = None
+            try:
+                ppt_app = win32com.client.GetObject(Class="PowerPoint.Application")
+            except:
+                try:
+                    ppt_app = win32com.client.GetActiveObject("PowerPoint.Application")
+                except:
+                    ppt_app = win32com.client.Dispatch("PowerPoint.Application")
 
             ppt_index = self.selected_ppt_index.get()
             if ppt_index > 0 and ppt_index <= ppt_app.Presentations.Count:
@@ -736,7 +752,16 @@ class DocumentExtractorV3:
 
             self.root.after(0, lambda: self.status_text.set("Excel 연결 중..."))
 
-            excel_app = win32com.client.GetObject(Class="Excel.Application")
+            # 다양한 방법으로 Excel 연결 시도
+            excel_app = None
+            try:
+                excel_app = win32com.client.GetObject(Class="Excel.Application")
+            except:
+                try:
+                    excel_app = win32com.client.GetActiveObject("Excel.Application")
+                except:
+                    excel_app = win32com.client.Dispatch("Excel.Application")
+
             excel_index = self.selected_excel_index.get()
 
             if excel_index > 0 and excel_index <= excel_app.Workbooks.Count:
@@ -916,20 +941,52 @@ class DocumentExtractorV3:
         pythoncom.CoInitialize()
 
         try:
-            # HWPFrame.HwpObject 또는 HWPFrame.HwpCtrl 시도
             hwp = None
-            try:
-                hwp = win32com.client.GetObject(Class="HWPFrame.HwpObject")
-            except:
+            self.logger.log("한글 COM 연결 시도 시작")
+
+            # 한글 COM 연결 시도 (다양한 방법)
+            # 1. GetActiveObject 시도 (가장 안정적)
+            hwp_prog_ids = [
+                "HWPFrame.HwpObject",
+                "Hwp.HwpObject",
+                "HWPFrame.HwpCtrl",
+            ]
+
+            for prog_id in hwp_prog_ids:
                 try:
-                    hwp = win32com.client.GetObject(Class="HWPFrame.HwpCtrl")
-                except:
-                    pass
+                    hwp = win32com.client.GetActiveObject(prog_id)
+                    self.logger.log(f"한글 GetActiveObject 연결 성공: {prog_id}")
+                    break
+                except Exception as e:
+                    self.logger.log(f"GetActiveObject 실패 ({prog_id}): {str(e)[:40]}")
+
+            # 2. GetObject 시도
+            if hwp is None:
+                for prog_id in hwp_prog_ids:
+                    try:
+                        hwp = win32com.client.GetObject(Class=prog_id)
+                        self.logger.log(f"한글 GetObject 연결 성공: {prog_id}")
+                        break
+                    except Exception as e:
+                        self.logger.log(f"GetObject 실패 ({prog_id}): {str(e)[:40]}")
+
+            # 3. Dispatch 시도 (새 인스턴스지만 기존 문서 접근 가능할 수 있음)
+            if hwp is None:
+                dispatch_ids = [
+                    "HWPFrame.HwpObject",
+                    "Hwp.HwpObject",
+                    "HwpCtrl.HwpObject",
+                ]
+                for prog_id in dispatch_ids:
+                    try:
+                        hwp = win32com.client.Dispatch(prog_id)
+                        self.logger.log(f"한글 Dispatch 연결 성공: {prog_id}")
+                        break
+                    except Exception as e:
+                        self.logger.log(f"Dispatch 실패 ({prog_id}): {str(e)[:40]}")
 
             if hwp is None:
-                raise Exception("한글 프로그램을 찾을 수 없습니다")
-
-            self.logger.log("한글 연결 성공")
+                raise Exception("한글 프로그램을 찾을 수 없습니다. 한글을 먼저 실행해주세요.")
 
             # 현재 열린 문서 정보
             try:
@@ -983,26 +1040,12 @@ class DocumentExtractorV3:
 
         pythoncom.CoUninitialize()
 
-    def on_hwp_selected(self, event):
-        """한글 콤보박스 선택 이벤트"""
-        selected_idx = self.hwp_combo.current()
-        if selected_idx >= 0 and selected_idx < len(self.hwp_list):
-            name, page_count, hwp_index = self.hwp_list[selected_idx]
-            self.selected_hwp_index.set(hwp_index)
-            self.hwp_doc_name.set(name)
-            self.hwp_page_count.set(f"{page_count}페이지" if page_count != "-" else "-")
-            self.logger.log(f"한글 선택: {name}")
-
     def start_hwp_extraction(self):
-        """한글 추출 시작"""
-        self.logger.log("한글 추출 시작")
+        """한글 추출 시작 - 클립보드 모드 전용"""
+        self.logger.log("한글 클립보드 추출 시작")
 
         if not self.hwp_save_path.get():
             messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
-            return
-
-        if self.hwp_doc_name.get() == "열린 한글 없음":
-            messagebox.showwarning("경고", "열린 한글 문서가 없습니다.")
             return
 
         self.hwp_extract_button.config(state=tk.DISABLED)
@@ -1013,66 +1056,103 @@ class DocumentExtractorV3:
         thread.start()
 
     def _extract_hwp(self):
-        """한글 추출 (백그라운드)"""
-        self.logger.log("=== 한글 추출 시작 ===")
+        """한글 추출 - 클립보드 모드 전용"""
+        self.logger.log("=== 한글 클립보드 추출 시작 ===")
         pythoncom.CoInitialize()
 
         try:
             save_path = self.hwp_save_path.get()
-            extract_mode = self.hwp_extract_mode.get()
-
-            self.root.after(0, lambda: self.status_text.set("한글 연결 중..."))
-
-            # 한글 COM 연결
-            hwp = None
-            try:
-                hwp = win32com.client.GetObject(Class="HWPFrame.HwpObject")
-            except:
-                hwp = win32com.client.GetObject(Class="HWPFrame.HwpCtrl")
-
-            self.logger.log("한글 연결 성공")
-            self.root.after(0, lambda: self.progress_var.set(10))
-
-            # 텍스트 추출 방식
-            self.root.after(0, lambda: self.status_text.set("텍스트 추출 중..."))
-
             extracted_text = ""
 
+            # 클립보드에서 텍스트 가져오기
+            self.root.after(0, lambda: self.status_text.set("클립보드에서 텍스트 가져오는 중..."))
+            self.root.after(0, lambda: self.progress_var.set(30))
+
+            import win32clipboard
+            import ctypes
+
             try:
-                # 방법 1: GetTextFile 사용 (가장 확실)
-                temp_txt = os.path.join(tempfile.gettempdir(), "hwp_temp_extract.txt")
-
-                # 전체 선택
-                hwp.Run("SelectAll")
-                time.sleep(0.1)
-
-                # 클립보드로 복사
-                hwp.Run("Copy")
-                time.sleep(0.1)
-
-                # 클립보드에서 텍스트 가져오기
-                import win32clipboard
                 win32clipboard.OpenClipboard()
                 try:
+                    # 먼저 클립보드에 어떤 포맷이 있는지 확인 (디버깅용)
+                    self.logger.log("클립보드 포맷 확인 중...")
+                    available_formats = []
+                    format_id = 0
+                    while True:
+                        format_id = ctypes.windll.user32.EnumClipboardFormats(format_id)
+                        if format_id == 0:
+                            break
+                        # 포맷 이름 가져오기
+                        format_name_buffer = ctypes.create_unicode_buffer(256)
+                        name_len = ctypes.windll.user32.GetClipboardFormatNameW(format_id, format_name_buffer, 256)
+                        if name_len > 0:
+                            format_name = format_name_buffer.value
+                        else:
+                            # 표준 포맷 이름
+                            standard_formats = {
+                                1: "CF_TEXT", 2: "CF_BITMAP", 3: "CF_METAFILEPICT",
+                                4: "CF_SYLK", 5: "CF_DIF", 6: "CF_TIFF",
+                                7: "CF_OEMTEXT", 8: "CF_DIB", 9: "CF_PALETTE",
+                                10: "CF_PENDATA", 11: "CF_RIFF", 12: "CF_WAVE",
+                                13: "CF_UNICODETEXT", 14: "CF_ENHMETAFILE",
+                                15: "CF_HDROP", 16: "CF_LOCALE", 17: "CF_DIBV5"
+                            }
+                            format_name = standard_formats.get(format_id, f"Unknown({format_id})")
+                        available_formats.append(f"{format_id}:{format_name}")
+
+                    self.logger.log(f"클립보드에 있는 포맷들: {', '.join(available_formats)}")
+
+                    # 텍스트 추출 시도 (우선순위: UNICODETEXT > TEXT > RTF > HTML)
                     if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
                         extracted_text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+                        self.logger.log(f"클립보드에서 유니코드 텍스트 가져옴: {len(extracted_text)}자")
                     elif win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_TEXT):
-                        extracted_text = win32clipboard.GetClipboardData(win32clipboard.CF_TEXT).decode('cp949', errors='ignore')
+                        data = win32clipboard.GetClipboardData(win32clipboard.CF_TEXT)
+                        extracted_text = data.decode('cp949', errors='ignore')
+                        self.logger.log(f"클립보드에서 ANSI 텍스트 가져옴: {len(extracted_text)}자")
+                    else:
+                        # RTF 포맷 시도 (한글에서 복사 시 RTF로 저장될 수 있음)
+                        cf_rtf = win32clipboard.RegisterClipboardFormat("Rich Text Format")
+                        cf_html = win32clipboard.RegisterClipboardFormat("HTML Format")
+
+                        if win32clipboard.IsClipboardFormatAvailable(cf_rtf):
+                            rtf_data = win32clipboard.GetClipboardData(cf_rtf)
+                            self.logger.log(f"RTF 포맷 발견: {len(rtf_data)} bytes")
+                            # RTF에서 텍스트만 추출 (간단한 방식)
+                            import re
+                            if isinstance(rtf_data, bytes):
+                                rtf_str = rtf_data.decode('cp949', errors='ignore')
+                            else:
+                                rtf_str = rtf_data
+                            # RTF 태그 제거하고 텍스트만 추출
+                            extracted_text = re.sub(r'\\[a-z]+\d*\s?|[{}]', '', rtf_str)
+                            extracted_text = extracted_text.replace('\\par', '\n').strip()
+                            self.logger.log(f"RTF에서 텍스트 추출: {len(extracted_text)}자")
+                        elif win32clipboard.IsClipboardFormatAvailable(cf_html):
+                            html_data = win32clipboard.GetClipboardData(cf_html)
+                            self.logger.log(f"HTML 포맷 발견: {len(html_data)} bytes")
+                            # HTML에서 텍스트만 추출
+                            import re
+                            if isinstance(html_data, bytes):
+                                html_str = html_data.decode('utf-8', errors='ignore')
+                            else:
+                                html_str = html_data
+                            # HTML 태그 제거
+                            extracted_text = re.sub(r'<[^>]+>', '', html_str)
+                            extracted_text = extracted_text.strip()
+                            self.logger.log(f"HTML에서 텍스트 추출: {len(extracted_text)}자")
+                        else:
+                            error_msg = "클립보드에 텍스트가 없습니다.\n"
+                            error_msg += f"발견된 포맷: {', '.join(available_formats) if available_formats else '없음'}\n"
+                            error_msg += "\n한글에서 Ctrl+A → Ctrl+C를 먼저 해주세요."
+                            raise Exception(error_msg)
                 finally:
                     win32clipboard.CloseClipboard()
-
-                # 선택 해제
-                hwp.Run("Cancel")
-
-                self.logger.log(f"텍스트 추출 완료: {len(extracted_text)}자")
-
             except Exception as e:
-                self.logger.error("텍스트 추출 오류", e)
-                # 대안: 직접 텍스트 가져오기 시도
-                try:
-                    extracted_text = hwp.GetTextFile("TEXT", "")
-                except:
-                    pass
+                raise Exception(f"클립보드 접근 실패: {str(e)}")
+
+            if not extracted_text.strip():
+                raise Exception("클립보드가 비어있습니다.\n한글에서 Ctrl+A → Ctrl+C를 먼저 해주세요.")
 
             self.root.after(0, lambda: self.progress_var.set(70))
 
