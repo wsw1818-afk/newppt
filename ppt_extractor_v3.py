@@ -378,18 +378,19 @@ class DocumentExtractorV3:
         """탭 변경 시 해당 문서 감지 (중복 감지 방지)"""
         current_tab = self.notebook.index(self.notebook.select())
 
-        # 같은 탭이거나 이미 감지 완료된 탭이면 스킵
-        if current_tab == self.last_tab_index:
+        # 이미 감지 완료된 탭이면 스킵
+        if self.tab_detected[current_tab]:
             return
 
-        self.last_tab_index = current_tab
+        # 플래그를 먼저 설정하여 중복 호출 방지
+        self.tab_detected[current_tab] = True
 
-        # 해당 탭이 아직 감지되지 않았으면 감지
-        if current_tab == 0 and not self.tab_detected[0]:  # PPT
+        # 해당 탭 감지 실행
+        if current_tab == 0:  # PPT
             self.detect_open_ppt()
-        elif current_tab == 1 and not self.tab_detected[1]:  # Excel
+        elif current_tab == 1:  # Excel
             self.detect_open_excel()
-        elif current_tab == 2 and not self.tab_detected[2]:  # 한글
+        elif current_tab == 2:  # 한글
             self.detect_open_hwp()
 
     # ========== PPT 관련 메서드 ==========
@@ -416,9 +417,6 @@ class DocumentExtractorV3:
 
     def detect_open_ppt(self):
         """열려있는 PPT 감지"""
-        # 중복 감지 방지: 감지 시작 시점에 플래그 설정
-        self.tab_detected[0] = True
-
         self.logger.log("PPT 감지 시작")
         self.status_text.set("PPT 감지 중...")
         self.ppt_doc_name.set("감지 중...")
@@ -617,9 +615,6 @@ class DocumentExtractorV3:
 
     def detect_open_excel(self):
         """열려있는 Excel 감지"""
-        # 중복 감지 방지: 감지 시작 시점에 플래그 설정
-        self.tab_detected[1] = True
-
         self.logger.log("Excel 감지 시작")
         self.status_text.set("Excel 감지 중...")
         self.excel_doc_name.set("감지 중...")
@@ -898,9 +893,6 @@ class DocumentExtractorV3:
 
     def detect_open_hwp(self):
         """열려있는 한글 감지"""
-        # 중복 감지 방지: 감지 시작 시점에 플래그 설정
-        self.tab_detected[2] = True
-
         self.logger.log("한글 감지 시작")
         self.status_text.set("한글 감지 중...")
         self.hwp_doc_name.set("감지 중...")
