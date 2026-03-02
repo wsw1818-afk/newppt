@@ -337,7 +337,6 @@ class PDFPrinter:
         excel_app = win32com.client.GetObject(Class="Excel.Application")
         workbook = excel_app.ActiveWorkbook
 
-        # ActiveSheet 또는 전체 Workbook 인쇄
         # ExportAsFixedFormat으로 PDF 직접 생성 시도
         try:
             # Type=0: PDF, Type=1: XPS
@@ -348,12 +347,15 @@ class PDFPrinter:
                 IncludeDocProperties=True,
                 OpenAfterPublish=False
             )
-        except:
-            # ExportAsFixedFormat 실패 시 PrintOut 사용
-            workbook.PrintOut(
-                PrintToFile=True,
-                PrToFileName=save_path,
-                Copies=1
+        except Exception as e:
+            # ExportAsFixedFormat 실패 시 명확한 오류 메시지 표시
+            # PrintOut은 PDF를 직접 생성하지 못하므로 fallback에서 제거
+            raise Exception(
+                f"Excel PDF 저장 실패: {str(e)}\n\n"
+                "해결 방법:\n"
+                "1. Excel 파일이 저장되어 있는지 확인\n"
+                "2. 'Microsoft Print to PDF' 프린터가 설치되어 있는지 확인\n"
+                "3. 파일이 다른 프로그램에서 사용 중이지 않은지 확인"
             )
 
         time.sleep(2)

@@ -282,9 +282,9 @@ class DocumentExtractor:
 
             # 새 프레젠테이션 생성
             new_prs = Presentation()
-            # 슬라이드 크기 설정 (EMU 단위)
-            new_prs.slide_width = Emu(presentation.PageSetup.SlideWidth * 914400 / 72)
-            new_prs.slide_height = Emu(presentation.PageSetup.SlideHeight * 914400 / 72)
+            # 슬라이드 크기 설정 (EMU 단위: 포인트 * 12700)
+            new_prs.slide_width = Emu(int(presentation.PageSetup.SlideWidth * 12700))
+            new_prs.slide_height = Emu(int(presentation.PageSetup.SlideHeight * 12700))
 
             for i in range(1, total_slides + 1):
                 progress = (i / total_slides) * 100

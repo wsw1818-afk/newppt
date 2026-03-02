@@ -1,8 +1,8 @@
 """
 문서 보안 해제 도구 v3
-- PPT, Excel, 한글(HWP) 지원
+- PPT, Excel 지원
 - COM으로 데이터 읽기
-- python-pptx, openpyxl, python-hwp로 직접 파일 생성 (DRM 우회)
+- python-pptx, openpyxl로 직접 파일 생성 (DRM 우회)
 - 슬라이드 전체 이미지 캡처 + 도형 속성 직접 재생성
 - 바탕화면에 상세 로그 저장
 """
@@ -61,7 +61,7 @@ class Logger:
         self.log(f"=== 문서 추출기 v3 로그 시작 ===")
         self.log(f"로그 파일: {self.log_path}")
         self.log(f"시작 시간: {datetime.datetime.now()}")
-        self.log(f"지원 문서: PPT, Excel, 한글(HWP)")
+        self.log(f"지원 문서: PPT, Excel")
         self.log("")
 
     def log(self, message):
@@ -87,20 +87,74 @@ class Logger:
 
 
 # AutoShape Type 매핑 (COM -> python-pptx)
+# COM AutoShapeType 상수: https://docs.microsoft.com/en-us/office/vba/api/office.msoautoshapetype
 AUTOSHAPE_MAPPING = {
-    1: MSO_SHAPE.RECTANGLE,
-    2: MSO_SHAPE.PARALLELOGRAM,
-    3: MSO_SHAPE.TRAPEZOID,
-    4: MSO_SHAPE.DIAMOND,
-    5: MSO_SHAPE.ROUNDED_RECTANGLE,
-    6: MSO_SHAPE.OCTAGON,
-    9: MSO_SHAPE.ISOSCELES_TRIANGLE,
-    10: MSO_SHAPE.RIGHT_TRIANGLE,
-    11: MSO_SHAPE.OVAL,
-    12: MSO_SHAPE.HEXAGON,
-    13: MSO_SHAPE.CROSS,
-    16: MSO_SHAPE.CUBE,
-    # ... 필요시 더 추가
+    # 기본 도형
+    1: MSO_SHAPE.RECTANGLE,           # 사각형
+    2: MSO_SHAPE.PARALLELOGRAM,       # 평행사변형
+    3: MSO_SHAPE.TRAPEZOID,           # 사다리꼴
+    4: MSO_SHAPE.DIAMOND,             # 마름모
+    5: MSO_SHAPE.ROUNDED_RECTANGLE,   # 둥근 사각형
+    6: MSO_SHAPE.OCTAGON,             # 팔각형
+    7: MSO_SHAPE.ISOSCELES_TRIANGLE,  # 이등변 삼각형 (별칭)
+    8: MSO_SHAPE.RIGHT_TRIANGLE,      # 직각 삼각형 (별칭)
+    9: MSO_SHAPE.ISOSCELES_TRIANGLE,  # 이등변 삼각형
+    10: MSO_SHAPE.RIGHT_TRIANGLE,     # 직각 삼각형
+    11: MSO_SHAPE.OVAL,               # 타원/원
+    12: MSO_SHAPE.HEXAGON,            # 육각형
+    13: MSO_SHAPE.CROSS,              # 십자가
+    14: MSO_SHAPE.REGULAR_PENTAGON,   # 오각형 (별칭)
+    15: MSO_SHAPE.STAR_4_POINT,       # 4각 별 (별칭)
+    16: MSO_SHAPE.CUBE,               # 정육면체
+
+    # 화살표
+    13: MSO_SHAPE.RIGHT_ARROW,        # 오른쪽 화살표
+    14: MSO_SHAPE.LEFT_ARROW,         # 왼쪽 화살표
+    15: MSO_SHAPE.UP_ARROW,           # 위쪽 화살표
+    16: MSO_SHAPE.DOWN_ARROW,         # 아래쪽 화살표
+    17: MSO_SHAPE.LEFT_RIGHT_ARROW,   # 좌우 화살표
+    18: MSO_SHAPE.UP_DOWN_ARROW,      # 상하 화살표
+    19: MSO_SHAPE.QUAD_ARROW,         # 4방향 화살표
+    20: MSO_SHAPE.CHEVRON,            # 갈매기형
+    21: MSO_SHAPE.NOTCHED_RIGHT_ARROW,# 홈이 있는 화살표
+    22: MSO_SHAPE.PENTAGON,           # 오각형 (집 모양)
+    23: MSO_SHAPE.CHEVRON,            # 갈매기형 (별칭)
+
+    # 별
+    12: MSO_SHAPE.STAR_5_POINT,       # 5각 별
+    37: MSO_SHAPE.STAR_6_POINT,       # 6각 별
+    38: MSO_SHAPE.STAR_8_POINT,       # 8각 별
+    39: MSO_SHAPE.STAR_16_POINT,      # 16각 별
+    40: MSO_SHAPE.STAR_24_POINT,      # 24각 별
+    41: MSO_SHAPE.STAR_32_POINT,      # 32각 별
+
+    # 블록 화살표
+    24: MSO_SHAPE.RIGHT_ARROW_CALLOUT,    # 설명선 화살표
+    25: MSO_SHAPE.LEFT_ARROW_CALLOUT,     # 설명선 화살표
+    26: MSO_SHAPE.UP_ARROW_CALLOUT,       # 설명선 화살표
+    27: MSO_SHAPE.DOWN_ARROW_CALLOUT,     # 설명선 화살표
+    28: MSO_SHAPE.LEFT_RIGHT_ARROW_CALLOUT,
+    29: MSO_SHAPE.UP_DOWN_ARROW_CALLOUT,
+
+    # 설명선/말풍선
+    30: MSO_SHAPE.ROUNDED_RECTANGLE,  # 둥근 사각형 설명선
+    31: MSO_SHAPE.OVAL_CALLOUT,       # 타원 설명선
+    32: MSO_SHAPE.CLOUD_CALLOUT,      # 구름 설명선
+
+    # 기호
+    33: MSO_SHAPE.HEART,              # 하트
+    34: MSO_SHAPE.LIGHTNING_BOLT,     # 번개
+    35: MSO_SHAPE.SUN,                # 태양
+    36: MSO_SHAPE.MOON,               # 달
+
+    # 도형 (추가)
+    42: MSO_SHAPE.FOLDED_CORNER,      # 접힌 모서리
+    43: MSO_SHAPE.SMILEY_FACE,        # 스마일
+    44: MSO_SHAPE.NO_SYMBOL,          # 금지 표시
+    45: MSO_SHAPE.BLOCK_ARC,          # 호
+    46: MSO_SHAPE.DONUT,              # 도넛
+    47: MSO_SHAPE.RECTANGLE,           # 기울어진 텍스트 (TEXT_SLANT 미지원 → 폴백)
+    48: MSO_SHAPE.RECTANGLE,           # 아치형 텍스트 (TEXT_ARCH_DOWN_CURVE 미지원 → 폴백)
 }
 
 
@@ -136,14 +190,13 @@ class DocumentExtractorV3:
 
         # 한글 상태 변수
         self.hwp_doc_name = tk.StringVar(value="감지 중...")
-        self.hwp_page_count = tk.StringVar(value="-")
         self.hwp_save_path = tk.StringVar(value="")
         self.hwp_list = []
         self.selected_hwp_index = tk.IntVar(value=0)
 
         # 탭 변경 추적 (중복 감지 방지)
         self.last_tab_index = -1
-        self.tab_detected = [False, False, False]  # PPT, Excel, HWP 각각 감지 완료 여부
+        self.tab_detected = [False, False, False]  # PPT, Excel, 한글 각각 감지 완료 여부
 
         self.setup_ui()
 
@@ -163,7 +216,7 @@ class DocumentExtractorV3:
 
         # 설명
         desc_label = ttk.Label(main_frame,
-                               text="PPT, Excel, 한글(HWP) 문서의 DRM을 우회하여 새 파일로 저장합니다",
+                               text="PPT, Excel 문서의 DRM을 우회하여 새 파일로 저장합니다",
                                font=("맑은 고딕", 9), justify=tk.CENTER)
         desc_label.pack(pady=(0, 10))
 
@@ -183,7 +236,7 @@ class DocumentExtractorV3:
 
         # 한글 탭
         self.hwp_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.hwp_tab, text="  한글(HWP)  ")
+        self.notebook.add(self.hwp_tab, text="  한글  ")
         self._setup_hwp_tab()
 
         # 진행바 (공통)
@@ -315,46 +368,48 @@ class DocumentExtractorV3:
         self.excel_extract_button.pack(pady=10)
 
     def _setup_hwp_tab(self):
-        """한글 탭 설정 - 클립보드 모드 전용 (DRM 환경 대응)"""
+        """한글 탭 설정"""
         tab = self.hwp_tab
 
-        # 안내 프레임
-        guide_frame = ttk.LabelFrame(tab, text="사용 방법", padding="15")
-        guide_frame.pack(fill=tk.X, pady=10, padx=5)
+        # 문서 정보 프레임
+        info_frame = ttk.LabelFrame(tab, text="열린 한글 문서 선택", padding="10")
+        info_frame.pack(fill=tk.X, pady=5, padx=5)
 
-        guide_text = """회사 DRM으로 인해 한글 문서에 직접 접근이 불가능합니다.
-아래 방법으로 텍스트를 추출할 수 있습니다:
+        # 한글 선택 콤보박스
+        select_frame = ttk.Frame(info_frame)
+        select_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(select_frame, text="문서 선택:", width=12).pack(side=tk.LEFT)
+        self.hwp_combo = ttk.Combobox(select_frame, state="readonly", width=40)
+        self.hwp_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.hwp_combo.bind("<<ComboboxSelected>>", self.on_hwp_selected)
 
-  1단계: 한글에서 Ctrl+A (전체 선택)
-  2단계: Ctrl+C (복사)
-  3단계: 아래 저장 경로 선택 후 버튼 클릭"""
-
-        ttk.Label(guide_frame, text=guide_text, font=("맑은 고딕", 10),
-                  justify=tk.LEFT).pack(anchor=tk.W)
+        # 새로고침 버튼
+        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_hwp).pack(pady=(10, 0))
 
         # 저장 경로 프레임
-        path_frame = ttk.LabelFrame(tab, text="저장 위치", padding="10")
-        path_frame.pack(fill=tk.X, pady=10, padx=5)
+        path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
+        path_frame.pack(fill=tk.X, pady=5, padx=5)
 
         path_inner = ttk.Frame(path_frame)
         path_inner.pack(fill=tk.X)
         ttk.Entry(path_inner, textvariable=self.hwp_save_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(path_inner, text="찾아보기", command=self.browse_hwp_save_path).pack(side=tk.LEFT)
 
-        # 추출 버튼 (크게)
-        self.hwp_extract_button = ttk.Button(tab, text="클립보드 내용을 파일로 저장",
-                                              command=self.start_hwp_extraction,
-                                              style="Accent.TButton")
-        self.hwp_extract_button.pack(pady=20)
+        # 저장 형식 프레임
+        format_frame = ttk.LabelFrame(tab, text="저장 형식", padding="10")
+        format_frame.pack(fill=tk.X, pady=5, padx=5)
 
-        # 클립보드 모드 고정
-        self.hwp_extract_mode = tk.StringVar(value="clipboard")
+        self.hwp_save_format = tk.StringVar(value="hwp")
+        ttk.Radiobutton(format_frame, text="HWP (한글 문서)",
+                        variable=self.hwp_save_format, value="hwp").pack(anchor=tk.W)
+        ttk.Radiobutton(format_frame, text="HWPX (한글 2014 이상)",
+                        variable=self.hwp_save_format, value="hwpx").pack(anchor=tk.W)
 
-        # 안내 라벨
-        notice_label = ttk.Label(tab,
-                                 text="※ 텍스트만 추출됩니다. 이미지/표 서식은 지원되지 않습니다.",
-                                 font=("맑은 고딕", 9), foreground="gray")
-        notice_label.pack(pady=5)
+        # 추출 버튼
+        self.hwp_extract_button = ttk.Button(tab, text="새 한글 문서로 추출 (DRM 우회)",
+                                             command=self.start_hwp_extraction,
+                                             style="Accent.TButton")
+        self.hwp_extract_button.pack(pady=10)
 
     def _on_tab_changed(self, event):
         """탭 변경 시 해당 문서 감지 (중복 감지 방지, debounce 적용)"""
@@ -383,7 +438,8 @@ class DocumentExtractorV3:
             self.detect_open_ppt()
         elif current_tab == 1:  # Excel
             self.detect_open_excel()
-        # 한글 탭(2)은 클립보드 모드 전용이므로 COM 감지 안 함
+        elif current_tab == 2:  # 한글
+            self.detect_open_hwp()
 
     # ========== PPT 관련 메서드 ==========
 
@@ -586,6 +642,9 @@ class DocumentExtractorV3:
 
                 source_slide = source_pres.Slides(i)
                 new_slide = new_pres.slides.add_slide(blank_layout)
+
+                # 슬라이드 배경색 복사
+                self._copy_slide_background(source_slide, new_slide)
 
                 if mode == "image_only":
                     self._export_slide_as_image(source_slide, new_slide, temp_dir, i, new_pres)
@@ -893,322 +952,37 @@ class DocumentExtractorV3:
     def _excel_color_to_hex(self, color):
         """Excel 색상을 hex 문자열로 변환"""
         try:
-            if color is None or color == 0:
+            # color가 None인 경우만 None 반환 (검정색 #000000은 유효한 색상)
+            if color is None:
                 return None
             # Excel 색상은 BGR 형식
             b = (color >> 16) & 0xFF
             g = (color >> 8) & 0xFF
             r = color & 0xFF
             return f"{r:02X}{g:02X}{b:02X}"
-        except:
+        except Exception as e:
+            self.logger.error(f"색상 변환 실패: {color}", e)
             return None
 
-    # ========== 한글(HWP) 관련 메서드 ==========
+    # ========== PPT 슬라이드 처리 메서드 ==========
 
-    def browse_hwp_save_path(self):
-        """한글 저장 경로 선택"""
-        self.logger.log("한글 저장 경로 선택")
-
-        doc_name = self.hwp_doc_name.get()
-        if doc_name and doc_name != "감지 중..." and doc_name != "열린 한글 없음":
-            default_name = os.path.splitext(doc_name)[0] + "_복사본.hwp"
-        else:
-            default_name = "새문서.hwp"
-
-        path = filedialog.asksaveasfilename(
-            defaultextension=".hwp",
-            filetypes=[("한글 파일", "*.hwp"), ("텍스트 파일", "*.txt")],
-            initialfile=default_name,
-            title="저장할 위치 선택"
-        )
-        if path:
-            self.hwp_save_path.set(path)
-            self.logger.log(f"한글 저장 경로: {path}")
-
-    def detect_open_hwp(self):
-        """열려있는 한글 감지"""
-        self.logger.log("한글 감지 시작")
-        self.status_text.set("한글 감지 중...")
-        self.hwp_doc_name.set("감지 중...")
-        self.hwp_page_count.set("-")
-
-        thread = threading.Thread(target=self._detect_hwp)
-        thread.daemon = True
-        thread.start()
-
-    def _detect_hwp(self):
-        """한글 감지 (백그라운드)"""
-        pythoncom.CoInitialize()
-
+    def _copy_slide_background(self, source_slide, target_slide):
+        """슬라이드 배경색 복사"""
         try:
-            hwp = None
-            self.logger.log("한글 COM 연결 시도 시작")
-
-            # 한글 COM 연결 시도 (다양한 방법)
-            # 1. GetActiveObject 시도 (가장 안정적)
-            hwp_prog_ids = [
-                "HWPFrame.HwpObject",
-                "Hwp.HwpObject",
-                "HWPFrame.HwpCtrl",
-            ]
-
-            for prog_id in hwp_prog_ids:
-                try:
-                    hwp = win32com.client.GetActiveObject(prog_id)
-                    self.logger.log(f"한글 GetActiveObject 연결 성공: {prog_id}")
-                    break
-                except Exception as e:
-                    self.logger.log(f"GetActiveObject 실패 ({prog_id}): {str(e)[:40]}")
-
-            # 2. GetObject 시도
-            if hwp is None:
-                for prog_id in hwp_prog_ids:
-                    try:
-                        hwp = win32com.client.GetObject(Class=prog_id)
-                        self.logger.log(f"한글 GetObject 연결 성공: {prog_id}")
-                        break
-                    except Exception as e:
-                        self.logger.log(f"GetObject 실패 ({prog_id}): {str(e)[:40]}")
-
-            # 3. Dispatch 시도 (새 인스턴스지만 기존 문서 접근 가능할 수 있음)
-            if hwp is None:
-                dispatch_ids = [
-                    "HWPFrame.HwpObject",
-                    "Hwp.HwpObject",
-                    "HwpCtrl.HwpObject",
-                ]
-                for prog_id in dispatch_ids:
-                    try:
-                        hwp = win32com.client.Dispatch(prog_id)
-                        self.logger.log(f"한글 Dispatch 연결 성공: {prog_id}")
-                        break
-                    except Exception as e:
-                        self.logger.log(f"Dispatch 실패 ({prog_id}): {str(e)[:40]}")
-
-            if hwp is None:
-                raise Exception("한글 프로그램을 찾을 수 없습니다. 한글을 먼저 실행해주세요.")
-
-            # 현재 열린 문서 정보
-            try:
-                doc_count = 1  # 한글은 보통 하나의 문서만 활성화
-                hwp_names = []
-                hwp_info = []
-
-                # 현재 문서 정보 가져오기
-                try:
-                    doc_path = hwp.Path
-                    doc_name = os.path.basename(doc_path) if doc_path else "새 문서"
-                except:
-                    doc_name = "열린 문서"
-
-                try:
-                    # 페이지 수 가져오기 시도
-                    page_count = hwp.PageCount
-                except:
-                    page_count = "-"
-
-                hwp_names.append(f"{doc_name}")
-                hwp_info.append((doc_name, page_count, 1))
-                self.logger.log(f"  한글: {doc_name}, {page_count}페이지")
-
-                self.hwp_list = hwp_info
-
-                def update_combo():
-                    self.hwp_combo['values'] = hwp_names
-                    if hwp_names:
-                        self.hwp_combo.current(0)
-                        self.selected_hwp_index.set(1)
-                        self.hwp_doc_name.set(hwp_info[0][0])
-                        self.hwp_page_count.set(f"{hwp_info[0][1]}페이지" if hwp_info[0][1] != "-" else "-")
-                    self.status_text.set("한글 문서 감지됨")
-
-                self.root.after(0, update_combo)
-
-            except Exception as e:
-                self.logger.error("한글 문서 정보 가져오기 실패", e)
-                raise
-
-        except Exception as e:
-            self.logger.error("한글 감지 실패", e)
-            self.hwp_list = []
-            def show_error():
-                self.hwp_combo.set("")
-                self.hwp_doc_name.set("열린 한글 없음")
-                self.hwp_page_count.set("-")
-                self.status_text.set("한글을 먼저 열어주세요")
-            self.root.after(0, show_error)
-
-        pythoncom.CoUninitialize()
-
-    def start_hwp_extraction(self):
-        """한글 추출 시작 - 클립보드 모드 전용"""
-        self.logger.log("한글 클립보드 추출 시작")
-
-        if not self.hwp_save_path.get():
-            messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
-            return
-
-        self.hwp_extract_button.config(state=tk.DISABLED)
-        self.progress_var.set(0)
-
-        thread = threading.Thread(target=self._extract_hwp)
-        thread.daemon = True
-        thread.start()
-
-    def _extract_hwp(self):
-        """한글 추출 - 클립보드 모드 전용"""
-        self.logger.log("=== 한글 클립보드 추출 시작 ===")
-        pythoncom.CoInitialize()
-
-        try:
-            save_path = self.hwp_save_path.get()
-            extracted_text = ""
-
-            # 클립보드에서 텍스트 가져오기
-            self.root.after(0, lambda: self.status_text.set("클립보드에서 텍스트 가져오는 중..."))
-            self.root.after(0, lambda: self.progress_var.set(30))
-
-            import win32clipboard
-            import ctypes
-
-            try:
-                win32clipboard.OpenClipboard()
-                try:
-                    # 먼저 클립보드에 어떤 포맷이 있는지 확인 (디버깅용)
-                    self.logger.log("클립보드 포맷 확인 중...")
-                    available_formats = []
-                    format_id = 0
-                    while True:
-                        format_id = ctypes.windll.user32.EnumClipboardFormats(format_id)
-                        if format_id == 0:
-                            break
-                        # 포맷 이름 가져오기
-                        format_name_buffer = ctypes.create_unicode_buffer(256)
-                        name_len = ctypes.windll.user32.GetClipboardFormatNameW(format_id, format_name_buffer, 256)
-                        if name_len > 0:
-                            format_name = format_name_buffer.value
-                        else:
-                            # 표준 포맷 이름
-                            standard_formats = {
-                                1: "CF_TEXT", 2: "CF_BITMAP", 3: "CF_METAFILEPICT",
-                                4: "CF_SYLK", 5: "CF_DIF", 6: "CF_TIFF",
-                                7: "CF_OEMTEXT", 8: "CF_DIB", 9: "CF_PALETTE",
-                                10: "CF_PENDATA", 11: "CF_RIFF", 12: "CF_WAVE",
-                                13: "CF_UNICODETEXT", 14: "CF_ENHMETAFILE",
-                                15: "CF_HDROP", 16: "CF_LOCALE", 17: "CF_DIBV5"
-                            }
-                            format_name = standard_formats.get(format_id, f"Unknown({format_id})")
-                        available_formats.append(f"{format_id}:{format_name}")
-
-                    self.logger.log(f"클립보드에 있는 포맷들: {', '.join(available_formats)}")
-
-                    # 텍스트 추출 시도 (우선순위: UNICODETEXT > TEXT > RTF > HTML)
-                    if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
-                        extracted_text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
-                        self.logger.log(f"클립보드에서 유니코드 텍스트 가져옴: {len(extracted_text)}자")
-                    elif win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_TEXT):
-                        data = win32clipboard.GetClipboardData(win32clipboard.CF_TEXT)
-                        extracted_text = data.decode('cp949', errors='ignore')
-                        self.logger.log(f"클립보드에서 ANSI 텍스트 가져옴: {len(extracted_text)}자")
-                    else:
-                        # RTF 포맷 시도 (한글에서 복사 시 RTF로 저장될 수 있음)
-                        cf_rtf = win32clipboard.RegisterClipboardFormat("Rich Text Format")
-                        cf_html = win32clipboard.RegisterClipboardFormat("HTML Format")
-
-                        if win32clipboard.IsClipboardFormatAvailable(cf_rtf):
-                            rtf_data = win32clipboard.GetClipboardData(cf_rtf)
-                            self.logger.log(f"RTF 포맷 발견: {len(rtf_data)} bytes")
-                            # RTF에서 텍스트만 추출 (간단한 방식)
-                            import re
-                            if isinstance(rtf_data, bytes):
-                                rtf_str = rtf_data.decode('cp949', errors='ignore')
-                            else:
-                                rtf_str = rtf_data
-                            # RTF 태그 제거하고 텍스트만 추출
-                            extracted_text = re.sub(r'\\[a-z]+\d*\s?|[{}]', '', rtf_str)
-                            extracted_text = extracted_text.replace('\\par', '\n').strip()
-                            self.logger.log(f"RTF에서 텍스트 추출: {len(extracted_text)}자")
-                        elif win32clipboard.IsClipboardFormatAvailable(cf_html):
-                            html_data = win32clipboard.GetClipboardData(cf_html)
-                            self.logger.log(f"HTML 포맷 발견: {len(html_data)} bytes")
-                            # HTML에서 텍스트만 추출
-                            import re
-                            if isinstance(html_data, bytes):
-                                html_str = html_data.decode('utf-8', errors='ignore')
-                            else:
-                                html_str = html_data
-                            # HTML 태그 제거
-                            extracted_text = re.sub(r'<[^>]+>', '', html_str)
-                            extracted_text = extracted_text.strip()
-                            self.logger.log(f"HTML에서 텍스트 추출: {len(extracted_text)}자")
-                        else:
-                            error_msg = "클립보드에 텍스트가 없습니다.\n"
-                            error_msg += f"발견된 포맷: {', '.join(available_formats) if available_formats else '없음'}\n"
-                            error_msg += "\n한글에서 Ctrl+A → Ctrl+C를 먼저 해주세요."
-                            raise Exception(error_msg)
-                finally:
-                    win32clipboard.CloseClipboard()
-            except Exception as e:
-                raise Exception(f"클립보드 접근 실패: {str(e)}")
-
-            if not extracted_text.strip():
-                raise Exception("클립보드가 비어있습니다.\n한글에서 Ctrl+A → Ctrl+C를 먼저 해주세요.")
-
-            self.root.after(0, lambda: self.progress_var.set(70))
-
-            # 파일로 저장
-            self.root.after(0, lambda: self.status_text.set("파일 저장 중..."))
-
-            if save_path.lower().endswith('.hwp'):
-                # HWP로 저장하려면 새 한글 문서 생성 필요
-                try:
-                    # 새 한글 인스턴스로 저장 시도
-                    new_hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
-                    new_hwp.XHwpWindows.Item(0).Visible = False
-
-                    # 새 문서 생성
-                    new_hwp.Run("FileNew")
-
-                    # 텍스트 삽입
-                    new_hwp.HAction.GetDefault("InsertText", new_hwp.HParameterSet.HInsertText.HSet)
-                    new_hwp.HParameterSet.HInsertText.Text = extracted_text
-                    new_hwp.HAction.Execute("InsertText", new_hwp.HParameterSet.HInsertText.HSet)
-
-                    # 저장
-                    new_hwp.SaveAs(save_path)
-                    new_hwp.Quit()
-
-                    self.logger.log(f"HWP 저장 완료: {save_path}")
-
-                except Exception as hwp_save_err:
-                    self.logger.error("HWP 저장 실패, TXT로 저장", hwp_save_err)
-                    # TXT로 대체 저장
-                    txt_path = save_path.replace('.hwp', '.txt')
-                    with open(txt_path, 'w', encoding='utf-8') as f:
-                        f.write(extracted_text)
-                    save_path = txt_path
-            else:
-                # TXT로 저장
-                with open(save_path, 'w', encoding='utf-8') as f:
-                    f.write(extracted_text)
-
-            self.logger.log(f"저장 완료: {save_path}")
-
-            self.root.after(0, lambda: self.progress_var.set(100))
-            self.root.after(0, lambda: self.status_text.set("한글 추출 완료!"))
-            self.root.after(0, lambda: messagebox.showinfo("완료",
-                f"한글 추출 완료!\n{save_path}\n\n추출된 텍스트: {len(extracted_text)}자"))
-
-        except Exception as e:
-            self.logger.error("한글 추출 오류", e)
-            self.root.after(0, lambda: self.status_text.set(f"오류: {str(e)[:50]}"))
-            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{str(e)}"))
-
-        finally:
-            self.root.after(0, lambda: self.hwp_extract_button.config(state=tk.NORMAL))
-            pythoncom.CoUninitialize()
-
-    # ========== PPT 슬라이드 처리 메서드 (기존 코드) ==========
+            bg = source_slide.Background
+            fill = bg.Fill
+            if fill.Visible:
+                fill_type = fill.Type  # 1=solid
+                if fill_type == 1:
+                    fill_rgb = fill.ForeColor.RGB
+                    r = fill_rgb & 0xFF
+                    g = (fill_rgb >> 8) & 0xFF
+                    b = (fill_rgb >> 16) & 0xFF
+                    background = target_slide.background
+                    background.fill.solid()
+                    background.fill.fore_color.rgb = RGBColor(r, g, b)
+        except:
+            pass
 
     def _export_slide_as_image(self, source_slide, target_slide, temp_dir, slide_num, new_pres):
         """슬라이드 전체를 이미지로 내보내기"""
@@ -1336,31 +1110,49 @@ class DocumentExtractorV3:
 
             return False
 
-        except:
+        except Exception as e:
+            self.logger.log(f"도형 재생성 실패 (타입 {shape_type}): {str(e)[:50]}")
             return False
 
     def _handle_image_shape(self, source_shape, target_slide, temp_dir, left, top, width, height):
         """이미지 도형 처리"""
+        img_path = None
+
         # Export 시도
         try:
             img_path = os.path.join(temp_dir, f"img_{id(source_shape)}.png")
             source_shape.Export(img_path, 2)
             target_slide.shapes.add_picture(img_path, left, top, width, height)
             return True
-        except:
-            pass
+        except Exception as e:
+            self.logger.log(f"이미지 Export 실패: {str(e)[:50]}")
+            # 실패 시 임시 파일 정리
+            if img_path and os.path.exists(img_path):
+                try:
+                    os.remove(img_path)
+                except Exception:
+                    pass
 
         # 클립보드 시도
         for retry in range(3):
+            clipboard_img = None
             try:
                 source_shape.Copy()
                 time.sleep(0.15)
-                img_data = self._get_image_from_clipboard(temp_dir)
-                if img_data:
-                    target_slide.shapes.add_picture(img_data, left, top, width, height)
+                clipboard_img = self._get_image_from_clipboard(temp_dir)
+                if clipboard_img:
+                    target_slide.shapes.add_picture(clipboard_img, left, top, width, height)
                     return True
-            except:
+            except Exception as e:
+                self.logger.log(f"클립보드 이미지 추출 실패 (시도 {retry+1}/3): {str(e)[:50]}")
                 time.sleep(0.2)
+            finally:
+                # 클립보드에서 생성된 임시 파일 정리
+                if clipboard_img and os.path.exists(clipboard_img):
+                    try:
+                        os.remove(clipboard_img)
+                    except Exception:
+                        pass
 
         # Placeholder
         try:
@@ -1369,7 +1161,8 @@ class DocumentExtractorV3:
             placeholder.fill.fore_color.rgb = RGBColor(220, 220, 220)
             placeholder.text_frame.paragraphs[0].text = "[이미지]"
             return True
-        except:
+        except Exception as e:
+            self.logger.error("이미지 Placeholder 생성 실패", e)
             return False
 
     def _handle_autoshape(self, source_shape, target_slide, left, top, width, height):
@@ -1379,47 +1172,127 @@ class DocumentExtractorV3:
             pptx_shape_type = AUTOSHAPE_MAPPING.get(auto_shape_type, MSO_SHAPE.RECTANGLE)
             new_shape = target_slide.shapes.add_shape(pptx_shape_type, left, top, width, height)
 
+            # 회전
+            try:
+                rotation = source_shape.Rotation
+                if rotation and rotation != 0:
+                    new_shape.rotation = rotation
+            except:
+                pass
+
             # 채우기
             try:
-                if source_shape.Fill.Visible:
-                    fill_rgb = source_shape.Fill.ForeColor.RGB
-                    r, g, b = fill_rgb & 0xFF, (fill_rgb >> 8) & 0xFF, (fill_rgb >> 16) & 0xFF
-                    new_shape.fill.solid()
-                    new_shape.fill.fore_color.rgb = RGBColor(r, g, b)
+                fill = source_shape.Fill
+                if fill.Visible:
+                    fill_type = fill.Type  # 1=solid,2=gradient,3=texture,4=pattern,5=background
+                    if fill_type == 1:  # solid
+                        fill_rgb = fill.ForeColor.RGB
+                        r, g, b = fill_rgb & 0xFF, (fill_rgb >> 8) & 0xFF, (fill_rgb >> 16) & 0xFF
+                        new_shape.fill.solid()
+                        new_shape.fill.fore_color.rgb = RGBColor(r, g, b)
+                        # 투명도
+                        try:
+                            transparency = fill.Transparency
+                            if transparency and transparency > 0:
+                                new_shape.fill.fore_color.theme_color  # 접근 확인
+                                # XML로 직접 투명도 설정
+                                from lxml import etree
+                                from pptx.oxml.ns import qn as _qn
+                                spPr = new_shape._element.spPr
+                                solidFill = spPr.find('.//' + _qn('a:solidFill'))
+                                if solidFill is not None:
+                                    srgbClr = solidFill.find(_qn('a:srgbClr'))
+                                    if srgbClr is not None:
+                                        alpha = etree.SubElement(srgbClr, _qn('a:alpha'))
+                                        alpha.set('val', str(int((1 - transparency) * 100000)))
+                        except:
+                            pass
+                    else:
+                        # gradient/pattern → 단색 근사
+                        try:
+                            fill_rgb = fill.ForeColor.RGB
+                            r, g, b = fill_rgb & 0xFF, (fill_rgb >> 8) & 0xFF, (fill_rgb >> 16) & 0xFF
+                            new_shape.fill.solid()
+                            new_shape.fill.fore_color.rgb = RGBColor(r, g, b)
+                        except:
+                            pass
+                else:
+                    new_shape.fill.background()  # 투명
             except:
                 pass
 
             # 테두리
             try:
-                if source_shape.Line.Visible:
-                    line_rgb = source_shape.Line.ForeColor.RGB
+                line = source_shape.Line
+                if line.Visible:
+                    line_rgb = line.ForeColor.RGB
                     r, g, b = line_rgb & 0xFF, (line_rgb >> 8) & 0xFF, (line_rgb >> 16) & 0xFF
                     new_shape.line.color.rgb = RGBColor(r, g, b)
-                    new_shape.line.width = Pt(source_shape.Line.Weight)
+                    new_shape.line.width = Pt(line.Weight)
+                else:
+                    new_shape.line.fill.background()  # 테두리 없음
             except:
                 pass
 
             self._copy_text_frame(source_shape, new_shape)
             return True
-        except:
+        except Exception as e:
+            self.logger.log(f"AutoShape 처리 실패: {str(e)[:60]}")
             return False
 
     def _handle_table(self, source_shape, target_slide, left, top, width, height):
-        """테이블 처리"""
+        """테이블 처리 — 셀 텍스트·배경색·폰트 복사"""
         try:
-            rows = source_shape.Table.Rows.Count
-            cols = source_shape.Table.Columns.Count
-            table = target_slide.shapes.add_table(rows, cols, left, top, width, height).table
+            src_table = source_shape.Table
+            rows = src_table.Rows.Count
+            cols = src_table.Columns.Count
+            tbl_shape = target_slide.shapes.add_table(rows, cols, left, top, width, height)
+            table = tbl_shape.table
+
+            # 열 너비 복사
+            try:
+                for c in range(1, cols + 1):
+                    col_width = src_table.Columns(c).Width
+                    table.columns[c-1].width = Emu(int(col_width * 12700))
+            except:
+                pass
+
+            # 행 높이 복사
+            try:
+                for r in range(1, rows + 1):
+                    row_height = src_table.Rows(r).Height
+                    table.rows[r-1].height = Emu(int(row_height * 12700))
+            except:
+                pass
 
             for r in range(1, rows + 1):
                 for c in range(1, cols + 1):
                     try:
-                        cell_text = source_shape.Table.Cell(r, c).Shape.TextFrame.TextRange.Text
-                        table.cell(r-1, c-1).text = cell_text
+                        src_cell = src_table.Cell(r, c)
+                        dst_cell = table.cell(r-1, c-1)
+                        src_cell_shape = src_cell.Shape
+
+                        # 텍스트+서식 복사
+                        self._copy_text_frame(src_cell_shape, dst_cell)
+
+                        # 셀 배경색
+                        try:
+                            fill = src_cell_shape.Fill
+                            if fill.Visible and fill.Type == 1:
+                                fill_rgb = fill.ForeColor.RGB
+                                r_c = fill_rgb & 0xFF
+                                g_c = (fill_rgb >> 8) & 0xFF
+                                b_c = (fill_rgb >> 16) & 0xFF
+                                dst_cell.fill.solid()
+                                dst_cell.fill.fore_color.rgb = RGBColor(r_c, g_c, b_c)
+                        except:
+                            pass
+
                     except:
                         pass
             return True
-        except:
+        except Exception as e:
+            self.logger.log(f"테이블 처리 실패: {str(e)[:60]}")
             return False
 
     def _handle_connector(self, source_shape, target_slide, left, top):
@@ -1445,16 +1318,25 @@ class DocumentExtractorV3:
 
     def _handle_freeform(self, source_shape, target_slide, temp_dir, left, top, width, height):
         """Freeform 처리"""
+        img_path = None
         for retry in range(3):
             try:
                 source_shape.Copy()
                 time.sleep(0.15)
-                img_data = self._get_image_from_clipboard(temp_dir)
-                if img_data:
-                    target_slide.shapes.add_picture(img_data, left, top, width, height)
+                img_path = self._get_image_from_clipboard(temp_dir)
+                if img_path:
+                    target_slide.shapes.add_picture(img_path, left, top, width, height)
                     return True
-            except:
+            except Exception as e:
+                self.logger.log(f"Freeform 클립보드 추출 실패 (시도 {retry+1}/3): {str(e)[:50]}")
                 time.sleep(0.2)
+            finally:
+                # 임시 파일 정리
+                if img_path and os.path.exists(img_path):
+                    try:
+                        os.remove(img_path)
+                    except Exception:
+                        pass
 
         # 텍스트만
         if source_shape.HasTextFrame and source_shape.TextFrame.HasText:
@@ -1464,26 +1346,134 @@ class DocumentExtractorV3:
         return False
 
     def _copy_text_frame(self, source_shape, target_shape):
-        """텍스트 프레임 복사"""
+        """텍스트 프레임 복사 — 단락/런 단위 서식 보존"""
         try:
             if not source_shape.HasTextFrame or not source_shape.TextFrame.HasText:
                 return
 
-            text = source_shape.TextFrame.TextRange.Text
-            if not text.strip():
-                return
+            src_tf = source_shape.TextFrame
+            dst_tf = target_shape.text_frame
+            dst_tf.word_wrap = True
 
-            tf = target_shape.text_frame
-            tf.word_wrap = True
-            tf.paragraphs[0].text = text
-
+            # 수직 정렬
             try:
-                src_font = source_shape.TextFrame.TextRange.Font
-                tf.paragraphs[0].font.size = Pt(src_font.Size) if src_font.Size else Pt(12)
+                va = src_tf.TextRange.ParagraphFormat.Alignment  # COM 수직은 별도
             except:
                 pass
-        except:
-            pass
+            try:
+                anchor_map = {1: MSO_ANCHOR.TOP, 3: MSO_ANCHOR.MIDDLE, 4: MSO_ANCHOR.BOTTOM}
+                va_val = src_tf.VerticalAnchor  # 1=top,2=middle(없음),3=middle,4=bottom
+                if va_val in anchor_map:
+                    dst_tf.vertical_anchor = anchor_map[va_val]
+            except:
+                pass
+
+            para_count = src_tf.TextRange.Paragraphs().Count
+
+            # 기존 단락 초기화
+            from pptx.oxml.ns import qn as _qn
+            from lxml import etree
+            txBody = dst_tf._txBody
+            for old_p in txBody.findall(_qn('a:p')):
+                txBody.remove(old_p)
+
+            for pi in range(1, para_count + 1):
+                src_para = src_tf.TextRange.Paragraphs(pi)
+
+                # 새 단락 XML 엘리먼트 생성
+                new_p = etree.SubElement(txBody, _qn('a:p'))
+
+                # 단락 서식 (pPr)
+                try:
+                    pPr = etree.SubElement(new_p, _qn('a:pPr'))
+                    align_map = {1: 'l', 2: 'ctr', 3: 'r', 4: 'dist', 5: 'just'}
+                    align_val = src_para.ParagraphFormat.Alignment
+                    if align_val in align_map:
+                        pPr.set('algn', align_map[align_val])
+                    indent = src_para.ParagraphFormat.Indent
+                    if indent and indent != 0:
+                        pPr.set('indent', str(int(indent * 12700)))
+                    space_before = src_para.ParagraphFormat.SpaceBefore
+                    if space_before and space_before > 0:
+                        spcBef = etree.SubElement(pPr, _qn('a:spcBef'))
+                        spcPts = etree.SubElement(spcBef, _qn('a:spcPts'))
+                        spcPts.set('val', str(int(space_before * 100)))
+                except:
+                    pass
+
+                # 런(Run) 단위 텍스트+서식
+                try:
+                    run_count = src_para.Runs.Count
+                    if run_count == 0:
+                        # 빈 단락
+                        etree.SubElement(new_p, _qn('a:endParaRPr'), attrib={'lang': 'ko-KR'})
+                        continue
+
+                    for ri in range(1, run_count + 1):
+                        src_run = src_para.Runs(ri)
+                        run_text = src_run.Text
+                        src_font = src_run.Font
+
+                        new_r = etree.SubElement(new_p, _qn('a:r'))
+                        rPr = etree.SubElement(new_r, _qn('a:rPr'), attrib={'lang': 'ko-KR', 'dirty': '0'})
+
+                        # 굵게/기울임/밑줄
+                        try:
+                            if src_font.Bold:
+                                rPr.set('b', '1')
+                        except: pass
+                        try:
+                            if src_font.Italic:
+                                rPr.set('i', '1')
+                        except: pass
+                        try:
+                            if src_font.Underline:
+                                rPr.set('u', 'sng')
+                        except: pass
+                        # 글꼴 크기
+                        try:
+                            if src_font.Size:
+                                rPr.set('sz', str(int(src_font.Size * 100)))
+                        except: pass
+                        # 글꼴 이름
+                        try:
+                            if src_font.Name:
+                                latin = etree.SubElement(rPr, _qn('a:latin'))
+                                latin.set('typeface', src_font.Name)
+                        except: pass
+                        # 글자 색상
+                        try:
+                            rgb_val = src_font.Color.RGB
+                            r = rgb_val & 0xFF
+                            g = (rgb_val >> 8) & 0xFF
+                            b = (rgb_val >> 16) & 0xFF
+                            solidFill = etree.SubElement(rPr, _qn('a:solidFill'))
+                            srgbClr = etree.SubElement(solidFill, _qn('a:srgbClr'))
+                            srgbClr.set('val', f'{r:02X}{g:02X}{b:02X}')
+                        except: pass
+
+                        # 텍스트
+                        t_elem = etree.SubElement(new_r, _qn('a:t'))
+                        t_elem.text = run_text if run_text else ''
+
+                except Exception as re:
+                    # 런 읽기 실패 시 전체 단락 텍스트로 폴백
+                    try:
+                        para_text = src_para.Text
+                        new_r = etree.SubElement(new_p, _qn('a:r'))
+                        rPr = etree.SubElement(new_r, _qn('a:rPr'), attrib={'lang': 'ko-KR'})
+                        try:
+                            sz = src_tf.TextRange.Font.Size
+                            if sz:
+                                rPr.set('sz', str(int(sz * 100)))
+                        except: pass
+                        t_elem = etree.SubElement(new_r, _qn('a:t'))
+                        t_elem.text = para_text if para_text else ''
+                    except:
+                        pass
+
+        except Exception as e:
+            self.logger.log(f"텍스트 프레임 복사 실패: {str(e)[:80]}")
 
     def _get_image_from_clipboard(self, temp_dir):
         """클립보드에서 이미지 추출"""
@@ -1568,6 +1558,237 @@ class DocumentExtractorV3:
         except:
             pass
         return None
+
+    # ========== 한글 관련 메서드 ==========
+
+    def browse_hwp_save_path(self):
+        """한글 저장 경로 선택"""
+        self.logger.log("한글 저장 경로 선택 대화상자 열기")
+
+        doc_name = self.hwp_doc_name.get()
+        save_format = self.hwp_save_format.get()
+
+        if doc_name and doc_name != "감지 중..." and doc_name != "열린 한글 없음":
+            default_name = os.path.splitext(doc_name)[0] + "_복사본"
+        else:
+            default_name = "새문서"
+
+        if save_format == "hwpx":
+            ext = ".hwpx"
+            filetypes = [("한글 2014+ 파일", "*.hwpx")]
+        else:
+            ext = ".hwp"
+            filetypes = [("한글 파일", "*.hwp")]
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=ext,
+            filetypes=filetypes,
+            initialfile=default_name,
+            title="저장할 위치 선택"
+        )
+        if path:
+            self.hwp_save_path.set(path)
+            self.logger.log(f"한글 저장 경로 선택됨: {path}")
+
+    def detect_open_hwp(self):
+        """열려있는 한글 감지"""
+        self.logger.log("한글 감지 시작")
+        self.status_text.set("한글 감지 중...")
+        self.hwp_doc_name.set("감지 중...")
+
+        thread = threading.Thread(target=self._detect_hwp)
+        thread.daemon = True
+        thread.start()
+
+    def _detect_hwp(self):
+        """한글 감지 (백그라운드)"""
+        self.logger.log("백그라운드 한글 감지 스레드 시작")
+        pythoncom.CoInitialize()
+
+        try:
+            self.logger.log("HWPFrame.HwpObject 객체 연결 시도")
+            hwp = None
+
+            # 방법 1: GetObject (이미 실행 중인 인스턴스에 연결)
+            try:
+                hwp = win32com.client.GetObject(Class="HWPFrame.HwpObject")
+                self.logger.log("GetObject 연결 성공")
+            except Exception as e1:
+                self.logger.log(f"GetObject 실패: {str(e1)[:50]}")
+
+                # 방법 2: Dispatch로 연결 시도
+                try:
+                    hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+                    self.logger.log("Dispatch 연결 성공")
+                except Exception as e2:
+                    self.logger.log(f"Dispatch 실패: {str(e2)[:50]}")
+                    raise Exception("한글에 연결할 수 없습니다. 한글을 먼저 실행해주세요.")
+
+            if hwp is None:
+                raise Exception("한글 연결 실패")
+
+            # 열린 문서 확인
+            try:
+                path = hwp.Path
+                if path:
+                    name = os.path.basename(path)
+                    self.hwp_list = [(name, path, 1)]
+                    self.logger.log(f"한글 문서 감지: {name}")
+
+                    def update_combo():
+                        self.hwp_combo['values'] = [name]
+                        self.hwp_combo.current(0)
+                        self.selected_hwp_index.set(1)
+                        self.hwp_doc_name.set(name)
+                        self.status_text.set("한글 문서 감지됨")
+
+                    self.root.after(0, update_combo)
+                else:
+                    # 제목 없는 문서
+                    self.hwp_list = [("제목 없음", "", 1)]
+                    self.logger.log("한글 제목 없는 문서 감지")
+
+                    def update_combo():
+                        self.hwp_combo['values'] = ["제목 없음"]
+                        self.hwp_combo.current(0)
+                        self.selected_hwp_index.set(1)
+                        self.hwp_doc_name.set("제목 없음")
+                        self.status_text.set("한글 문서 감지됨")
+
+                    self.root.after(0, update_combo)
+            except Exception as e:
+                self.logger.log(f"한글 문서 정보 가져오기 실패: {str(e)}")
+                self.hwp_list = []
+
+                def clear_combo():
+                    self.hwp_combo.set("")
+                    self.hwp_combo['values'] = []
+                    self.hwp_doc_name.set("열린 한글 없음")
+                    self.status_text.set("한글을 먼저 열어주세요")
+
+                self.root.after(0, clear_combo)
+
+        except Exception as e:
+            self.logger.error("한글 감지 실패", e)
+            self.hwp_list = []
+            err_msg = str(e)[:30]
+
+            def show_error():
+                self.hwp_combo.set("")
+                self.hwp_doc_name.set("열린 한글 없음")
+                self.status_text.set(f"한글 감지 실패: {err_msg}")
+
+            self.root.after(0, show_error)
+
+        pythoncom.CoUninitialize()
+
+    def on_hwp_selected(self, event):
+        """한글 콤보박스 선택 이벤트"""
+        selected_idx = self.hwp_combo.current()
+        if selected_idx >= 0 and selected_idx < len(self.hwp_list):
+            name, path, hwp_index = self.hwp_list[selected_idx]
+            self.selected_hwp_index.set(hwp_index)
+            self.hwp_doc_name.set(name)
+            self.logger.log(f"한글 선택: {name} (인덱스 {hwp_index})")
+
+    def start_hwp_extraction(self):
+        """한글 추출 시작"""
+        self.logger.log("한글 추출 시작 버튼 클릭")
+
+        if not self.hwp_save_path.get():
+            messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
+            return
+
+        if self.hwp_doc_name.get() == "열린 한글 없음":
+            messagebox.showwarning("경고", "열린 한글 문서가 없습니다.")
+            return
+
+        self.hwp_extract_button.config(state=tk.DISABLED)
+        self.progress_var.set(0)
+
+        thread = threading.Thread(target=self._extract_hwp)
+        thread.daemon = True
+        thread.start()
+
+    def _extract_hwp(self):
+        """한글 추출 (백그라운드)"""
+        self.logger.log("=== 한글 추출 프로세스 시작 ===")
+        pythoncom.CoInitialize()
+
+        try:
+            save_path = self.hwp_save_path.get()
+            save_format = self.hwp_save_format.get()
+            self.root.after(0, lambda: self.status_text.set("원본 한글 연결 중..."))
+
+            # 한글 연결
+            hwp = None
+            try:
+                hwp = win32com.client.GetObject(Class="HWPFrame.HwpObject")
+            except Exception:
+                try:
+                    hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+                except Exception:
+                    raise Exception("한글에 연결할 수 없습니다.")
+
+            self.logger.log(f"원본 한글 문서 연결 성공")
+            self.root.after(0, lambda: self.status_text.set("새 문서로 저장 중..."))
+            self.root.after(0, lambda: self.progress_var.set(30))
+
+            # 방법 1: SaveAs 시도
+            try:
+                self.logger.log(f"SaveAs 시도: {save_path}")
+                if save_format == "hwpx":
+                    hwp.SaveAs(save_path, "HWPX")
+                else:
+                    hwp.SaveAs(save_path, "HWP")
+
+                self.root.after(0, lambda: self.progress_var.set(100))
+                self.root.after(0, lambda: self.status_text.set("한글 추출 완료!"))
+                self.root.after(0, lambda: messagebox.showinfo("완료",
+                    f"한글 추출 완료!\n{save_path}"))
+                self.logger.log(f"저장 완료: {save_path}")
+
+            except Exception as e:
+                self.logger.log(f"SaveAs 실패: {str(e)}")
+
+                # 방법 2: 클립보드를 통한 복사 시도
+                self.root.after(0, lambda: self.status_text.set("클립보드 복사 시도 중..."))
+                self.root.after(0, lambda: self.progress_var.set(50))
+
+                try:
+                    # 전체 선택
+                    hwp.HAction.Run("SelectAll")
+                    # 복사
+                    hwp.HAction.Run("Copy")
+
+                    # 새 문서 생성
+                    hwp.HAction.Run("FileNew")
+                    # 붙여넣기
+                    hwp.HAction.Run("Paste")
+
+                    # 저장
+                    if save_format == "hwpx":
+                        hwp.SaveAs(save_path, "HWPX")
+                    else:
+                        hwp.SaveAs(save_path, "HWP")
+
+                    self.root.after(0, lambda: self.progress_var.set(100))
+                    self.root.after(0, lambda: self.status_text.set("한글 추출 완료!"))
+                    self.root.after(0, lambda: messagebox.showinfo("완료",
+                        f"한글 추출 완료 (클립보드 방식)!\n{save_path}"))
+                    self.logger.log(f"클립보드 방식으로 저장 완료: {save_path}")
+
+                except Exception as e2:
+                    raise Exception(f"한글 저장 실패:\n{str(e2)}")
+
+        except Exception as e:
+            self.logger.error("한글 추출 오류", e)
+            self.root.after(0, lambda: self.status_text.set(f"오류: {str(e)[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{str(e)}"))
+
+        finally:
+            self.root.after(0, lambda: self.hwp_extract_button.config(state=tk.NORMAL))
+            pythoncom.CoUninitialize()
 
     def run(self):
         """프로그램 실행"""
