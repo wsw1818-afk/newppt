@@ -1,20 +1,39 @@
 @echo off
-echo PPT Extractor v3 - EXE Build
+chcp 65001 > nul
+setlocal
+
+echo DocumentExtractor v3 - EXE Build
 echo.
 
-pip install pywin32 pyinstaller python-pptx
+echo Installing packages from requirements.txt...
+py -m pip install -r requirements.txt
+if errorlevel 1 goto :error
 
 echo.
-echo Building EXE...
-pyinstaller --onefile --windowed --name PPTExtractor_v3 ppt_extractor_v3.py
+echo Building EXE from DocumentExtractor_v3.spec...
+py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec
+if errorlevel 1 goto :error
 
 echo.
 echo Copying to output folder...
-if not exist "D:\OneDrive\코드작업\결과물\DocumentExtractor" mkdir "D:\OneDrive\코드작업\결과물\DocumentExtractor"
-copy /Y "dist\PPTExtractor_v3.exe" "D:\OneDrive\코드작업\결과물\DocumentExtractor\"
+set "OUTPUT_DIR=D:\OneDrive\코드작업\결과물\DocumentExtractor"
+if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
+copy /Y "dist\DocumentExtractor_v3.exe" "%OUTPUT_DIR%\"
+if errorlevel 1 goto :error
 
 echo.
 echo ========================================
 echo Build Complete!
+echo Output: %OUTPUT_DIR%\DocumentExtractor_v3.exe
 echo ========================================
+goto :done
+
+:error
+echo.
+echo ========================================
+echo Build Failed!
+echo ========================================
+exit /b 1
+
+:done
 pause
