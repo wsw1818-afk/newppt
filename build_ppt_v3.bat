@@ -16,7 +16,7 @@ if errorlevel 1 goto :error
 
 echo.
 echo Copying to output folder...
-set "OUTPUT_DIR=D:\OneDrive\코드작업\결과물\DocumentExtractor"
+set "OUTPUT_DIR=D:\OneDrive\코드작업\결과물\newppt"
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 copy /Y "dist\DocumentExtractor_v3.exe" "%OUTPUT_DIR%\"
 if errorlevel 1 goto :error

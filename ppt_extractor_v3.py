@@ -18,6 +18,7 @@ import datetime
 import traceback
 import io
 import time
+import zipfile
 import ctypes
 from ctypes import wintypes
 
@@ -68,6 +69,7 @@ class Logger:
     def __init__(self):
         self._lock = threading.Lock()
         self._line_count = 0
+        self._closed = False
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.log_path = os.path.join(desktop, f"DocExtractor_Log_{timestamp}.txt")
@@ -83,15 +85,19 @@ class Logger:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
         line = f"[{timestamp}] {message}"
         with self._lock:
+            if self._closed:
+                return
             try:
                 if sys.stdout:
                     print(line)
             except Exception:
                 pass
-            self.log_file.write(line + "\n")
-            self._line_count += 1
-            if self._line_count % 20 == 0 or "[ERROR]" in message:
+            try:
+                self.log_file.write(line + "\n")
+                self._line_count += 1
                 self.log_file.flush()
+            except Exception:
+                pass
 
     def error(self, message, exception=None):
         self.log(f"[ERROR] {message}")
@@ -105,8 +111,12 @@ class Logger:
     def close(self):
         self.log("")
         self.log(f"=== 로그 종료: {datetime.datetime.now()} ===")
-        self.log_file.flush()
-        self.log_file.close()
+        with self._lock:
+            try:
+                self.log_file.flush()
+                self.log_file.close()
+            finally:
+                self._closed = True
 
 
 # AutoShape Type 매핑 (COM -> python-pptx)
@@ -407,20 +417,125 @@ class DocumentExtractorV3:
         self.logger.log(f"{label}: {elapsed:.2f}초")
         return elapsed
 
+    def _read_header_hex(self, path, size=16):
+        try:
+            with open(path, "rb") as f:
+                return " ".join(f"{b:02X}" for b in f.read(size))
+        except Exception:
+            return "읽기 실패"
+
+    def _add_filename_suffix(self, path, suffix):
+        directory = os.path.dirname(path)
+        stem, ext = os.path.splitext(os.path.basename(path))
+        return os.path.join(directory, f"{stem}{suffix}{ext}")
+
+    def _make_local_temp_path(self, suffix):
+        """OneDrive/DRM 감시 폴더를 피해서 로컬 임시 파일 경로를 만든다."""
+        fd, temp_path = tempfile.mkstemp(prefix="docextract_", suffix=suffix)
+        os.close(fd)
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+        return temp_path
+
+    def _publish_verified_file(self, temp_path, save_path, label):
+        """검증된 로컬 임시 파일을 최종 위치로 복사하고 최종본도 다시 검증한다."""
+        self._validate_office_openxml(temp_path, label)
+        target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+
+        ext = os.path.splitext(save_path)[1] or ".tmp"
+        fd, stage_path = tempfile.mkstemp(prefix=".docextract_", suffix=ext, dir=target_dir)
+        os.close(fd)
+        try:
+            shutil.copy2(temp_path, stage_path)
+            self._validate_office_openxml(stage_path, f"{label} 최종 복사")
+            os.replace(stage_path, save_path)
+            self._validate_office_openxml(save_path, f"{label} 최종 파일")
+        except Exception:
+            if os.path.exists(stage_path):
+                try:
+                    os.remove(stage_path)
+                except Exception:
+                    pass
+            raise
+
+    def _validate_office_openxml(self, path, label):
+        """확장자가 OpenXML이면 실제 ZIP 패키지인지 확인한다."""
+        ext = os.path.splitext(path)[1].lower()
+        required_members = {
+            ".pptx": ["[Content_Types].xml", "ppt/presentation.xml"],
+            ".pptm": ["[Content_Types].xml", "ppt/presentation.xml"],
+            ".ppsx": ["[Content_Types].xml", "ppt/presentation.xml"],
+            ".potx": ["[Content_Types].xml", "ppt/presentation.xml"],
+            ".xlsx": ["[Content_Types].xml", "xl/workbook.xml"],
+            ".xlsm": ["[Content_Types].xml", "xl/workbook.xml"],
+            ".xlsb": ["[Content_Types].xml", "xl/workbook.bin"],
+            ".docx": ["[Content_Types].xml", "word/document.xml"],
+            ".docm": ["[Content_Types].xml", "word/document.xml"],
+        }.get(ext)
+        if not required_members:
+            return
+
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            raise Exception(f"{label} 저장 결과 파일이 없거나 비어 있습니다.")
+
+        header = self._read_header_hex(path)
+        if not zipfile.is_zipfile(path):
+            hint = ""
+            if header.startswith("53 43 44 53"):
+                hint = " DRM/보안 컨테이너(SCDS)로 저장된 것으로 보입니다."
+            raise Exception(
+                f"{label} 저장 결과가 정상 {ext} 파일이 아닙니다. header={header}.{hint}"
+            )
+
+        with zipfile.ZipFile(path) as archive:
+            bad_member = archive.testzip()
+            if bad_member:
+                raise Exception(f"{label} 저장 결과 ZIP 항목 손상: {bad_member}")
+            names = set(archive.namelist())
+            missing = [member for member in required_members if member not in names]
+            if missing:
+                raise Exception(f"{label} 저장 결과에 필수 항목이 없습니다: {missing}")
+
+    def _run_with_heartbeat(self, label, func, interval=10, warn_after=30):
+        """긴 COM 호출 동안 로그 파일이 멈춘 것처럼 보이지 않게 주기 로그를 남긴다."""
+        stop_event = threading.Event()
+        start_time = time.perf_counter()
+
+        def heartbeat():
+            warned = False
+            while not stop_event.wait(interval):
+                elapsed = time.perf_counter() - start_time
+                self.logger.log(f"{label} 진행 중... {elapsed:.0f}초 경과")
+                if not warned and elapsed >= warn_after:
+                    self.logger.log(
+                        f"{label} 지연 중: Office 저장 대화상자나 OneDrive 동기화 상태를 확인해 주세요."
+                    )
+                    warned = True
+
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        try:
+            return func()
+        finally:
+            stop_event.set()
+
     def _save_native_copy(self, source_doc, save_path, label):
         """Office의 원본 복사 기능으로 서식/개체를 가장 정확하게 보존한다."""
         target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
         os.makedirs(target_dir, exist_ok=True)
 
-        base_name = os.path.splitext(os.path.basename(save_path))[0] or "copy"
         ext = os.path.splitext(save_path)[1] or ".tmp"
-        fd, temp_path = tempfile.mkstemp(prefix=f"{base_name}_", suffix=ext, dir=target_dir)
-        os.close(fd)
+        temp_path = self._make_local_temp_path(ext)
         try:
-            os.remove(temp_path)
-            self.logger.log(f"{label} 원본 복사 임시 저장: {temp_path}")
-            source_doc.SaveCopyAs(temp_path)
-            os.replace(temp_path, save_path)
+            self.logger.log(f"{label} 원본 복사 로컬 임시 저장: {temp_path}")
+            self._run_with_heartbeat(
+                f"{label} SaveCopyAs",
+                lambda: source_doc.SaveCopyAs(temp_path),
+            )
+            self._publish_verified_file(temp_path, save_path, label)
             self.logger.log(f"{label} 원본 복사 저장 완료: {save_path}")
         except Exception:
             if os.path.exists(temp_path):
@@ -429,6 +544,182 @@ class DocumentExtractorV3:
                 except Exception:
                     pass
             raise
+
+    def _save_ppt_slide_clone(self, source_pres, save_path):
+        """PowerPoint 내부 복사/붙여넣기로 슬라이드를 최대한 원본에 가깝게 복제한다."""
+        target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+
+        temp_path = self._make_local_temp_path(".pptx")
+
+        app = source_pres.Application
+        target_pres = None
+        try:
+            self.logger.log(f"PPT 슬라이드 복제 로컬 임시 저장: {temp_path}")
+            target_pres = app.Presentations.Add()
+
+            try:
+                target_pres.PageSetup.SlideWidth = source_pres.PageSetup.SlideWidth
+                target_pres.PageSetup.SlideHeight = source_pres.PageSetup.SlideHeight
+            except Exception as size_error:
+                self.logger.log(f"PPT 슬라이드 크기 복사 실패: {str(size_error)[:60]}")
+
+            while target_pres.Slides.Count > 0:
+                target_pres.Slides(1).Delete()
+
+            total_slides = source_pres.Slides.Count
+            slide_indices = tuple(range(1, total_slides + 1))
+
+            def copy_slide_range(indices, insert_index):
+                last_error = None
+                for retry in range(1, self.PPT_CLIPBOARD_RETRY_COUNT + 2):
+                    try:
+                        source_pres.Slides.Range(indices).Copy()
+                        time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
+                        target_pres.Slides.Paste(insert_index)
+                        return
+                    except Exception as paste_error:
+                        last_error = paste_error
+                        if retry >= self.PPT_CLIPBOARD_RETRY_COUNT + 1:
+                            raise
+                        time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
+                if last_error:
+                    raise last_error
+
+            try:
+                copy_slide_range(slide_indices, 1)
+                self.logger.log(f"  PPT 슬라이드 일괄 복제: {total_slides}/{total_slides}")
+            except Exception as bulk_error:
+                self.logger.log(f"PPT 슬라이드 일괄 복제 실패, 개별 복제 전환: {str(bulk_error)[:80]}")
+                while target_pres.Slides.Count > 0:
+                    target_pres.Slides(1).Delete()
+                for slide_idx in range(1, total_slides + 1):
+                    try:
+                        copy_slide_range((slide_idx,), target_pres.Slides.Count + 1)
+                    except Exception as paste_error:
+                        raise Exception(f"슬라이드 {slide_idx} 복제 실패: {str(paste_error)[:80]}")
+
+                    if slide_idx == 1 or slide_idx == total_slides or slide_idx % 5 == 0:
+                        self.logger.log(f"  PPT 슬라이드 복제: {slide_idx}/{total_slides}")
+
+            self._run_with_heartbeat(
+                "PPT 슬라이드 복제 SaveAs",
+                lambda: target_pres.SaveAs(temp_path, 24),
+            )
+            self._publish_verified_file(temp_path, save_path, "PPT 슬라이드 복제")
+            self.logger.log(f"PPT 슬라이드 복제 저장 완료: {save_path}")
+        except Exception:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise
+        finally:
+            if target_pres is not None:
+                try:
+                    target_pres.Close()
+                except Exception:
+                    pass
+
+    def _capture_ppt_slide_image(self, source_slide, slide_idx, temp_dir, export_width, export_height):
+        """PowerPoint Export가 막힌 문서도 슬라이드를 이미지로 확보한다."""
+        img_path = os.path.join(temp_dir, f"visual_slide_{slide_idx}.png")
+        export_error = None
+        try:
+            source_slide.Export(img_path, "PNG", export_width, export_height)
+            if os.path.exists(img_path) and os.path.getsize(img_path) > 0:
+                return img_path
+            export_error = Exception("PowerPoint Export created an empty image")
+        except Exception as error:
+            export_error = error
+
+        self.logger.log(
+            f"  슬라이드 {slide_idx} Export 실패, 클립보드 이미지 복사 시도: {str(export_error)[:80]}"
+        )
+        clipboard_error = None
+        for retry in range(1, self.PPT_CLIPBOARD_RETRY_COUNT + 2):
+            try:
+                source_slide.Copy()
+                for _ in range(12):
+                    time.sleep(max(self.PPT_CLIPBOARD_RETRY_DELAY, 0.1))
+                    clipboard_path = self._get_image_from_clipboard(temp_dir)
+                    if clipboard_path and os.path.exists(clipboard_path) and os.path.getsize(clipboard_path) > 0:
+                        return clipboard_path
+                clipboard_error = Exception("클립보드에서 사용 가능한 이미지를 찾지 못했습니다.")
+            except Exception as error:
+                clipboard_error = error
+            if retry <= self.PPT_CLIPBOARD_RETRY_COUNT:
+                time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
+
+        raise Exception(
+            f"슬라이드 {slide_idx} 이미지 캡처 실패. "
+            f"Export={str(export_error)[:80]}, Clipboard={str(clipboard_error)[:80]}"
+        )
+
+    def _save_ppt_visual_copy(self, source_pres, save_path):
+        """각 슬라이드를 전체 이미지로 저장해 화면 배치/서식을 가장 정확하게 보존한다."""
+        if not HAS_PPTX:
+            raise Exception("python-pptx 패키지가 필요합니다. pip install python-pptx")
+
+        target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+        temp_dir = tempfile.mkdtemp(prefix="docextract_visual_")
+        temp_path = self._make_local_temp_path(".pptx")
+
+        try:
+            visual_pres = Presentation()
+            slide_width = source_pres.PageSetup.SlideWidth
+            slide_height = source_pres.PageSetup.SlideHeight
+            visual_pres.slide_width = Emu(int(slide_width * 12700))
+            visual_pres.slide_height = Emu(int(slide_height * 12700))
+            blank_layout = visual_pres.slide_layouts[6]
+            export_width = max(1, int(slide_width * 2))
+            export_height = max(1, int(slide_height * 2))
+            total_slides = source_pres.Slides.Count
+
+            self.logger.log(f"PPT 화면 그대로 이미지 저장 시작: {save_path}")
+            for slide_idx in range(1, total_slides + 1):
+                img_path = self._capture_ppt_slide_image(
+                    source_pres.Slides(slide_idx),
+                    slide_idx,
+                    temp_dir,
+                    export_width,
+                    export_height,
+                )
+                slide = visual_pres.slides.add_slide(blank_layout)
+                slide.shapes.add_picture(
+                    img_path,
+                    Emu(0),
+                    Emu(0),
+                    visual_pres.slide_width,
+                    visual_pres.slide_height,
+                )
+                if slide_idx == 1 or slide_idx == total_slides or slide_idx % 5 == 0:
+                    self.logger.log(f"  PPT 화면 그대로 이미지: {slide_idx}/{total_slides}")
+
+            visual_pres.save(temp_path)
+            self._publish_verified_file(temp_path, save_path, "PPT 화면 그대로")
+            self.logger.log(f"PPT 화면 그대로 이미지 저장 완료: {save_path}")
+        except Exception:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _try_save_ppt_visual_companion(self, source_pres, save_path):
+        visual_path = self._add_filename_suffix(save_path, "_화면그대로")
+        try:
+            self._save_ppt_visual_copy(source_pres, visual_path)
+            self.logger.log(f"PPT 화면 그대로 추가본 생성: {visual_path}")
+            return visual_path
+        except Exception as visual_error:
+            self.logger.log(f"PPT 화면 그대로 추가본 생성 실패: {str(visual_error)[:100]}")
+            return None
 
     def _save_hwp_document(self, hwp, save_path, save_format):
         """한글 버전별 SaveAs 인자 차이를 흡수한다."""
@@ -492,6 +783,7 @@ class DocumentExtractorV3:
         shutil.copy2(source_path, save_path)
         if not os.path.exists(save_path) or os.path.getsize(save_path) <= 0:
             raise Exception("Word 파일 복사 후 결과 파일이 생성되지 않았거나 비어 있습니다.")
+        self._validate_office_openxml(save_path, "Word")
 
     def _setup_ppt_tab(self):
         """PPT 탭 설정"""
@@ -796,6 +1088,7 @@ class DocumentExtractorV3:
         save_path = self.ppt_save_path.get()
         mode = self.ppt_extract_mode.get()
         ppt_index = self.selected_ppt_index.get()
+        self.logger.log(f"PPT 추출 설정: mode={mode}, index={ppt_index}, save_path={save_path}")
 
         if not save_path:
             messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
@@ -819,11 +1112,20 @@ class DocumentExtractorV3:
         pythoncom.CoInitialize()
 
         temp_dir = None
+        ppt_app = None
+        original_alerts = None
 
         try:
             self.root.after(0, lambda: self.status_text.set("원본 PPT 연결 중..."))
 
+            self.logger.log("PowerPoint COM 연결 시도")
             ppt_app, _ = self._get_ppt_app()
+            try:
+                original_alerts = ppt_app.DisplayAlerts
+                ppt_app.DisplayAlerts = 1  # ppAlertsNone
+                self.logger.log("PowerPoint 경고창 표시 비활성화")
+            except Exception as alerts_error:
+                self.logger.log(f"PowerPoint 경고창 설정 실패: {str(alerts_error)[:60]}")
             ppt_count = ppt_app.Presentations.Count
             if ppt_count == 0:
                 raise Exception("열린 PowerPoint 문서가 없습니다. PowerPoint에서 문서를 먼저 열어주세요.")
@@ -836,16 +1138,56 @@ class DocumentExtractorV3:
             self.logger.log(f"원본 프레젠테이션: {source_pres.Name}")
 
             if mode == "native_copy":
-                self.root.after(0, lambda: self.status_text.set("원본 PPT 그대로 복사 중..."))
-                self.root.after(0, lambda: self.progress_var.set(20))
-                total_slides = source_pres.Slides.Count
-                self._save_native_copy(source_pres, save_path, "PPT")
-                self._log_elapsed("PPT 원본 복사 시간", extract_start)
-                self.root.after(0, lambda: self.progress_var.set(100))
-                self.root.after(0, lambda: self.status_text.set("PPT 원본 복사 완료!"))
-                self.root.after(0, lambda: messagebox.showinfo("완료",
-                    f"PPT 원본 복사 완료!\n{save_path}\n\n총 {total_slides}장"))
-                return
+                try:
+                    self.root.after(0, lambda: self.status_text.set("원본 PPT 그대로 복사 중..."))
+                    self.root.after(0, lambda: self.progress_var.set(20))
+                    total_slides = source_pres.Slides.Count
+                    self._save_native_copy(source_pres, save_path, "PPT")
+                    self._log_elapsed("PPT 원본 복사 시간", extract_start)
+                    self.root.after(0, lambda: self.progress_var.set(100))
+                    self.root.after(0, lambda: self.status_text.set("PPT 원본 복사 완료!"))
+                    self.root.after(0, lambda: messagebox.showinfo("완료",
+                        f"PPT 원본 복사 완료!\n{save_path}\n\n총 {total_slides}장"))
+                    return
+                except Exception as copy_error:
+                    self.logger.log(
+                        f"PPT 원본 복사 결과 검증 실패, 슬라이드 복제로 전환: {str(copy_error)[:120]}"
+                    )
+                    try:
+                        self.root.after(0, lambda: self.status_text.set("원본 복사 실패, PowerPoint 슬라이드 복제 중..."))
+                        self.root.after(0, lambda: self.progress_var.set(30))
+                        self._save_ppt_slide_clone(source_pres, save_path)
+                        visual_path = self._try_save_ppt_visual_companion(source_pres, save_path)
+                        self._log_elapsed("PPT 슬라이드 복제 시간", extract_start)
+                        self.root.after(0, lambda: self.progress_var.set(100))
+                        self.root.after(0, lambda: self.status_text.set("PPT 슬라이드 복제 완료!"))
+                        self.root.after(0, lambda: messagebox.showinfo("완료",
+                            f"PPT 슬라이드 복제 완료!\n{save_path}\n\n"
+                            f"화면 그대로 추가본:\n{visual_path or '생성 실패'}\n\n"
+                            f"총 {total_slides}장"))
+                        return
+                    except Exception as clone_error:
+                        self.logger.log(
+                            f"PPT 슬라이드 복제 실패, 화면 그대로 저장 시도: {str(clone_error)[:120]}"
+                        )
+                        try:
+                            self.root.after(0, lambda: self.status_text.set("슬라이드 복제 실패, 화면 그대로 저장 중..."))
+                            self._save_ppt_visual_copy(source_pres, save_path)
+                            self._log_elapsed("PPT 화면 그대로 저장 시간", extract_start)
+                            self.root.after(0, lambda: self.progress_var.set(100))
+                            self.root.after(0, lambda: self.status_text.set("PPT 화면 그대로 저장 완료!"))
+                            self.root.after(0, lambda: messagebox.showinfo("완료",
+                                f"PPT 화면 그대로 저장 완료!\n{save_path}\n\n총 {total_slides}장"))
+                            return
+                        except Exception as visual_error:
+                            self.logger.log(
+                                f"PPT 화면 그대로 저장 실패, 하이브리드 재구성으로 전환: {str(visual_error)[:120]}"
+                            )
+                            self.root.after(0, lambda: self.status_text.set("화면 그대로 저장 실패, PPT 재구성 중..."))
+                            mode = "hybrid"
+
+            if not HAS_PPTX:
+                raise Exception("python-pptx 패키지가 필요합니다. pip install python-pptx")
 
             self.root.after(0, lambda: self.status_text.set("새 PPT 생성 중..."))
             self.root.after(0, lambda: self.progress_var.set(5))
@@ -885,7 +1227,16 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.status_text.set("파일 저장 중..."))
             self.root.after(0, lambda: self.progress_var.set(95))
 
-            new_pres.save(save_path)
+            temp_ppt_path = self._make_local_temp_path(".pptx")
+            try:
+                new_pres.save(temp_ppt_path)
+                self._publish_verified_file(temp_ppt_path, save_path, "PPT 재구성")
+            finally:
+                if os.path.exists(temp_ppt_path):
+                    try:
+                        os.remove(temp_ppt_path)
+                    except Exception:
+                        pass
             self.logger.log(f"저장 완료: {save_path}")
             self._log_elapsed("PPT 전체 추출 시간", extract_start)
 
@@ -902,6 +1253,11 @@ class DocumentExtractorV3:
         finally:
             if temp_dir and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
+            if ppt_app is not None and original_alerts is not None:
+                try:
+                    ppt_app.DisplayAlerts = original_alerts
+                except Exception:
+                    pass
             self.root.after(0, lambda: self.ppt_extract_button.config(state=tk.NORMAL))
             pythoncom.CoUninitialize()
 
@@ -1066,16 +1422,22 @@ class DocumentExtractorV3:
             self.logger.log(f"원본 통합문서: {source_wb.Name}")
 
             if native_copy:
-                self.root.after(0, lambda: self.status_text.set("원본 Excel 그대로 복사 중..."))
-                self.root.after(0, lambda: self.progress_var.set(20))
-                total_sheets = source_wb.Sheets.Count
-                self._save_native_copy(source_wb, save_path, "Excel")
-                self._log_elapsed("Excel 원본 복사 시간", extract_start)
-                self.root.after(0, lambda: self.progress_var.set(100))
-                self.root.after(0, lambda: self.status_text.set("Excel 원본 복사 완료!"))
-                self.root.after(0, lambda: messagebox.showinfo("완료",
-                    f"Excel 원본 복사 완료!\n{save_path}\n\n총 {total_sheets}시트"))
-                return
+                try:
+                    self.root.after(0, lambda: self.status_text.set("원본 Excel 그대로 복사 중..."))
+                    self.root.after(0, lambda: self.progress_var.set(20))
+                    total_sheets = source_wb.Sheets.Count
+                    self._save_native_copy(source_wb, save_path, "Excel")
+                    self._log_elapsed("Excel 원본 복사 시간", extract_start)
+                    self.root.after(0, lambda: self.progress_var.set(100))
+                    self.root.after(0, lambda: self.status_text.set("Excel 원본 복사 완료!"))
+                    self.root.after(0, lambda: messagebox.showinfo("완료",
+                        f"Excel 원본 복사 완료!\n{save_path}\n\n총 {total_sheets}시트"))
+                    return
+                except Exception as copy_error:
+                    self.logger.log(
+                        f"Excel 원본 복사 결과 검증 실패, 재구성으로 전환: {str(copy_error)[:120]}"
+                    )
+                    self.root.after(0, lambda: self.status_text.set("원본 복사 실패, Excel 재구성 중..."))
 
             if not HAS_OPENPYXL:
                 raise Exception("openpyxl 패키지가 필요합니다. pip install openpyxl")
@@ -1270,6 +1632,7 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.progress_var.set(95))
 
             new_wb.save(save_path)
+            self._validate_office_openxml(save_path, "Excel 재구성")
             self.logger.log(f"저장 완료: {save_path}")
             self._log_elapsed("Excel 전체 추출 시간", extract_start)
 
@@ -1539,29 +1902,27 @@ class DocumentExtractorV3:
             if height is None:
                 height = Emu(int(source_shape.Height * 12700))
 
-            try:
-                img_path = os.path.join(temp_dir, f"shape_{id(source_shape)}.png")
-                source_shape.Export(img_path, 2)
-            except Exception:
-                img_path = None
+            for retry in range(self.PPT_CLIPBOARD_RETRY_COUNT):
+                try:
+                    try:
+                        source_shape.CopyPicture()
+                    except Exception:
+                        source_shape.Copy()
+                    time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
+                    img_path = self._get_image_from_clipboard(temp_dir)
+                    if img_path:
+                        break
+                except Exception as e:
+                    if retry == self.PPT_CLIPBOARD_RETRY_COUNT - 1:
+                        self.logger.log(f"도형 클립보드 보존 실패: {str(e)[:60]}")
+                    time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
 
             if not img_path or not os.path.exists(img_path):
-                for retry in range(self.PPT_CLIPBOARD_RETRY_COUNT):
-                    try:
-                        try:
-                            source_shape.CopyPicture()
-                        except Exception:
-                            source_shape.Copy()
-                        time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
-                        img_path = self._get_image_from_clipboard(temp_dir)
-                        if img_path:
-                            break
-                    except Exception as e:
-                        self.logger.log(
-                            f"도형 이미지 보존 실패 "
-                            f"(시도 {retry+1}/{self.PPT_CLIPBOARD_RETRY_COUNT}): {str(e)[:50]}"
-                        )
-                        time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
+                try:
+                    img_path = os.path.join(temp_dir, f"shape_{id(source_shape)}.png")
+                    source_shape.Export(img_path, 2)
+                except Exception:
+                    img_path = None
 
             if img_path and os.path.exists(img_path):
                 target_slide.shapes.add_picture(img_path, left, top, width, height)
@@ -1635,27 +1996,16 @@ class DocumentExtractorV3:
     def _handle_image_shape(self, source_shape, target_slide, temp_dir, left, top, width, height):
         """이미지 도형 처리"""
         img_path = None
+        export_error = None
 
-        # Export 시도
-        try:
-            img_path = os.path.join(temp_dir, f"img_{id(source_shape)}.png")
-            source_shape.Export(img_path, 2)
-            target_slide.shapes.add_picture(img_path, left, top, width, height)
-            return True
-        except Exception as e:
-            self.logger.log(f"이미지 Export 실패: {str(e)[:50]}")
-            # 실패 시 임시 파일 정리
-            if img_path and os.path.exists(img_path):
-                try:
-                    os.remove(img_path)
-                except Exception:
-                    pass
-
-        # 클립보드 시도
+        # 클립보드 우선: 일부 보안 PPT는 Shape.Export 호출 때 PowerPoint 경고창을 띄운다.
         for retry in range(self.PPT_CLIPBOARD_RETRY_COUNT):
             clipboard_img = None
             try:
-                source_shape.Copy()
+                try:
+                    source_shape.CopyPicture()
+                except Exception:
+                    source_shape.Copy()
                 time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
                 clipboard_img = self._get_image_from_clipboard(temp_dir)
                 if clipboard_img:
@@ -1675,8 +2025,24 @@ class DocumentExtractorV3:
                     except Exception:
                         pass
 
+        # Export 폴백
+        try:
+            img_path = os.path.join(temp_dir, f"img_{id(source_shape)}.png")
+            source_shape.Export(img_path, 2)
+            target_slide.shapes.add_picture(img_path, left, top, width, height)
+            return True
+        except Exception as e:
+            export_error = e
+            if img_path and os.path.exists(img_path):
+                try:
+                    os.remove(img_path)
+                except Exception:
+                    pass
+
         # Placeholder
         try:
+            if export_error:
+                self.logger.log(f"이미지 보존 폴백 실패, Placeholder 생성: {str(export_error)[:60]}")
             placeholder = target_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
             placeholder.fill.solid()
             placeholder.fill.fore_color.rgb = RGBColor(220, 220, 220)
@@ -2017,6 +2383,15 @@ class DocumentExtractorV3:
                         img.save(img_path, "PNG")
                         return img_path
 
+                # PNG
+                png_format = win32clipboard.RegisterClipboardFormat("PNG")
+                if win32clipboard.IsClipboardFormatAvailable(png_format):
+                    data = win32clipboard.GetClipboardData(png_format)
+                    img_path = os.path.join(temp_dir, f"clipboard_{id(data)}.png")
+                    with open(img_path, 'wb') as f:
+                        f.write(data)
+                    return img_path
+
                 # EMF
                 if win32clipboard.IsClipboardFormatAvailable(14):
                     import ctypes
@@ -2030,15 +2405,6 @@ class DocumentExtractorV3:
                         with open(emf_path, 'wb') as f:
                             f.write(buffer.raw)
                         return emf_path
-
-                # PNG
-                png_format = win32clipboard.RegisterClipboardFormat("PNG")
-                if win32clipboard.IsClipboardFormatAvailable(png_format):
-                    data = win32clipboard.GetClipboardData(png_format)
-                    img_path = os.path.join(temp_dir, f"clipboard_{id(data)}.png")
-                    with open(img_path, 'wb') as f:
-                        f.write(data)
-                    return img_path
 
             finally:
                 win32clipboard.CloseClipboard()
@@ -2776,6 +3142,7 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.progress_var.set(95))
 
             new_doc.save(save_path)
+            self._validate_office_openxml(save_path, "Word 재구성")
             self.logger.log(f"저장 완료: {save_path}")
             self._log_elapsed("Word 전체 추출 시간", extract_start)
 
