@@ -24,6 +24,7 @@
 - PPT 이미지 도형은 1차 `Export` 실패 후 클립보드 폴백이 성공하면 실패 로그를 남기지 않는다.
 - PPT 변환 중 PowerPoint 경고창을 `DisplayAlerts=ppAlertsNone`으로 비활성화하고, 이미지 보존은 `Export`보다 클립보드 방식을 우선 사용한다.
 - PPT `SaveCopyAs`가 DRM 컨테이너로 실패하면 `python-pptx` 재구성 전에 PowerPoint 내부 슬라이드 복제 방식으로 먼저 저장한다.
+- PPT `SaveCopyAs` 실패 시 PowerPoint `SaveAs`를 거치지 않는 클립보드 슬라이드 패키지(`PowerPoint 14.0 Slides Package`) 직접 복원 경로를 우선 시도한다.
 - PPT 원본 복사가 DRM으로 실패하면 요청 파일 외에 `_화면그대로.pptx` 추가본을 생성한다. 이 파일은 편집성보다 서식/크기/배치 보존을 우선한다.
 - PPT 슬라이드 복제/화면 그대로/재구성 저장은 OneDrive 대상 경로에 직접 저장하지 않고 로컬 `%TEMP%`에 정상 PPTX를 만든 뒤 최종 경로로 복사한다.
 - PPT `Slide.Export`까지 DRM/보안 정책으로 막히면 `slide.Copy()` 클립보드 PNG/DIB 이미지를 받아 화면 그대로 PPTX를 생성한다.
@@ -92,13 +93,21 @@
 - 2026-05-12 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
 - 2026-05-12 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 복사 -> 성공
 - 2026-05-12 배포본 SHA256 -> `FF1CC984F625DABD89269A96897B6FBC4304286266A56383DAF3E80CBD0027AE`
+- 2026-05-12 `D:\OneDrive\1212121212.pptx` 진단 -> 정상 PPTX지만 40장 모두 그림 1개짜리 슬라이드, 편집 가능한 원본 구조는 남아 있지 않음
+- 2026-05-12 PowerPoint 클립보드 `PowerPoint 14.0 Slides Package`가 ZIP/OPC 슬라이드 패키지임을 확인하고 `clipboard/` -> `ppt/` 변환으로 편집 가능한 PPTX 복원 테스트 성공
+- 2026-05-12 PPT 원본 복사 실패 후 클립보드 슬라이드 패키지 복원 경로 추가
+- 2026-05-12 샘플 검증 -> 텍스트/도형이 살아 있는 PPTX 생성 및 PowerPoint 열기 성공
+- 2026-05-12 `py scripts\goal_verify_v3.py --clean` -> PASS 8, SKIP 1, FAIL 0
+- 2026-05-12 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-12 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 복사 -> 성공
+- 2026-05-12 배포본 SHA256 -> `0FD49DB86FE7B277C969B3E56090F17B7063B5011F3D468F09C0BF216401F795`
 
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 저장 안 된 문서나 확장자 변환은 기존 재구성 경로를 사용한다.
 - Excel 재구성 모드의 도형/이미지 위치는 TopLeftCell 기준 보존이며, 셀 내부 픽셀 오프셋은 근사치다.
 - PPT `_화면그대로.pptx` 추가본은 시각 보존용이라 각 슬라이드가 이미지로 들어간다. 편집이 필요하면 기본 산출물, 화면 일치가 필요하면 `_화면그대로` 산출물을 사용한다.
-- PPT 원본 복사와 PowerPoint 슬라이드 복제 저장이 모두 DRM으로 실패하면 화면 그대로 이미지 PPTX를 우선 생성한다. 단, 이 결과물은 시각 보존용이라 슬라이드 안의 개별 텍스트/도형 편집성은 낮다.
+- PPT 원본 복사 실패 후 클립보드 슬라이드 패키지가 제공되면 편집 가능한 원본 구조 복원을 우선한다. 이 패키지가 DRM/보안 정책으로 제공되지 않을 때만 슬라이드 복제/화면 이미지 경로로 내려간다.
 - PowerPoint 경고창이 계속 뜨면 기존 실행 중인 EXE/PowerPoint를 닫고 최신 EXE로 재실행해야 한다.
 - `SCDSA004`처럼 이미 DRM 컨테이너로 저장된 파일은 그 파일만으로 정상 PPTX 복구가 불가능하다. 원본 문서를 PowerPoint에 연 상태에서 새 EXE로 다시 추출해야 한다.
 - Windows 11 새 메모장은 자동 검증에서 SKIP됨. 현재 Win32 Edit/RichEdit 방식으로 제한적이라 UI Automation 검토 여지가 있다.

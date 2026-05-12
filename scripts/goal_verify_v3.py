@@ -29,6 +29,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT / "build" / "goal_verify"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 @dataclass
@@ -199,6 +201,75 @@ def check_ppt_native_copy(out_dir: Path) -> str:
     if not zip_has_prefix(copied, "ppt/media/"):
         raise RuntimeError("PPTX media payload missing")
     return f"slides=1 shapes={len(deck.slides[0].shapes)} pictures={len(pictures)}"
+
+
+def check_ppt_clipboard_package(out_dir: Path) -> str:
+    pythoncom, _pywintypes, win32 = import_com()
+    try:
+        from pptx import Presentation
+        from ppt_extractor_v3 import DocumentExtractorV3
+    except ImportError as exc:
+        raise SkipTest(f"ppt clipboard dependencies unavailable: {exc}") from exc
+
+    class StubLogger:
+        def log(self, message: str) -> None:
+            pass
+
+        def error(self, message: str, exc: Exception | None = None) -> None:
+            pass
+
+    source = out_dir / "sample_ppt_clipboard_source.pptx"
+    copied = out_dir / "sample_ppt_clipboard_package.pptx"
+
+    pythoncom.CoInitialize()
+    app = None
+    presentation = None
+    try:
+        app = dispatch_isolated(win32, "PowerPoint.Application", "PowerPoint")
+        app.Visible = True
+        presentation = app.Presentations.Add()
+        presentation.PageSetup.SlideWidth = 960
+        presentation.PageSetup.SlideHeight = 540
+        for idx in range(1, 3):
+            slide = presentation.Slides.Add(idx, 12)  # ppLayoutBlank
+            shape = slide.Shapes.AddShape(1, 80, 80, 220, 90)  # msoShapeRectangle
+            shape.TextFrame.TextRange.Text = f"clipboard verify {idx}"
+            slide.Shapes.AddTextbox(1, 360, 90, 240, 60).TextFrame.TextRange.Text = f"editable text {idx}"
+        presentation.SaveAs(str(source))
+
+        extractor = object.__new__(DocumentExtractorV3)
+        extractor.logger = StubLogger()
+        extractor._save_ppt_clipboard_package_copy(presentation, str(copied))
+    finally:
+        if presentation is not None:
+            try:
+                presentation.Close()
+            except Exception:
+                pass
+        if app is not None:
+            try:
+                app.Quit()
+            except Exception:
+                pass
+        pythoncom.CoUninitialize()
+
+    if not copied.exists() or copied.stat().st_size == 0:
+        raise RuntimeError("clipboard package PPTX was not created")
+    deck = Presentation(str(copied))
+    texts = [
+        shp.text
+        for slide in deck.slides
+        for shp in slide.shapes
+        if getattr(shp, "has_text_frame", False) and shp.text
+    ]
+    if len(deck.slides) != 2:
+        raise RuntimeError(f"slide count mismatch: {len(deck.slides)}")
+    for expected in ("clipboard verify 1", "clipboard verify 2", "editable text 1", "editable text 2"):
+        if expected not in texts:
+            raise RuntimeError(f"missing editable text: {expected}")
+    if not zip_has_prefix(copied, "ppt/slides/"):
+        raise RuntimeError("rebuilt PPTX slide XML missing")
+    return f"slides={len(deck.slides)} editable_texts={len(texts)}"
 
 
 def check_excel_native_copy(out_dir: Path) -> str:
@@ -499,6 +570,7 @@ def main() -> int:
         ("py_compile", check_py_compile),
         ("autoshape_mapping", check_autoshape_mapping),
         ("ppt_native_copy", lambda: check_ppt_native_copy(out_dir)),
+        ("ppt_clipboard_package", lambda: check_ppt_clipboard_package(out_dir)),
         ("excel_native_copy", lambda: check_excel_native_copy(out_dir)),
         ("word_safe_copy", lambda: check_word_safe_copy(out_dir)),
         ("hwp_getobject_no_spawn", check_hwp_getobject_no_spawn),

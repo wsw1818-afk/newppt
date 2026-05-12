@@ -545,6 +545,98 @@ class DocumentExtractorV3:
                     pass
             raise
 
+    def _get_powerpoint_clipboard_package(self):
+        """PowerPoint slide copy clipboard package bytes."""
+        try:
+            import win32clipboard
+        except Exception as import_error:
+            raise Exception(f"win32clipboard import failed: {import_error}")
+
+        package_format = win32clipboard.RegisterClipboardFormat("PowerPoint 14.0 Slides Package")
+        last_error = None
+        for _ in range(20):
+            try:
+                win32clipboard.OpenClipboard()
+                try:
+                    if win32clipboard.IsClipboardFormatAvailable(package_format):
+                        data = win32clipboard.GetClipboardData(package_format)
+                        if isinstance(data, bytes) and len(data) > 0:
+                            return data
+                        last_error = Exception("PowerPoint clipboard package is empty")
+                    else:
+                        last_error = Exception("PowerPoint clipboard package format is not available")
+                finally:
+                    win32clipboard.CloseClipboard()
+            except Exception as error:
+                last_error = error
+            time.sleep(0.1)
+        raise Exception(str(last_error))
+
+    def _write_ppt_clipboard_package_as_pptx(self, package_data, temp_path, target_ext=".pptx"):
+        """Convert the PowerPoint clipboard OPC package into a regular PPTX package."""
+        if not zipfile.is_zipfile(io.BytesIO(package_data)):
+            header = " ".join(f"{byte:02X}" for byte in package_data[:16])
+            raise Exception(f"PowerPoint clipboard package is not ZIP. header={header}")
+
+        macro_content_type = b"application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml"
+        pptx_content_type = b"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
+        with zipfile.ZipFile(io.BytesIO(package_data), "r") as source_archive:
+            names = set(source_archive.namelist())
+            if "clipboard/presentation.xml" not in names:
+                raise Exception("PowerPoint clipboard package has no presentation.xml")
+
+            with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as target_archive:
+                for item in source_archive.infolist():
+                    if item.is_dir():
+                        continue
+                    name = item.filename
+                    data = source_archive.read(name)
+                    if name.startswith("clipboard/"):
+                        name = "ppt/" + name[len("clipboard/"):]
+
+                    data = data.replace(b"/clipboard/", b"/ppt/")
+                    data = data.replace(b'Target="clipboard/', b'Target="ppt/')
+                    data = data.replace(b"Target='clipboard/", b"Target='ppt/")
+                    if target_ext.lower() != ".pptm":
+                        data = data.replace(macro_content_type, pptx_content_type)
+                    target_archive.writestr(name, data)
+
+    def _save_ppt_clipboard_package_copy(self, source_pres, save_path):
+        """Copy slides to clipboard and rebuild the PowerPoint slide package without SaveAs."""
+        temp_path = self._make_local_temp_path(".pptx")
+        try:
+            total_slides = source_pres.Slides.Count
+            slide_indices = tuple(range(1, total_slides + 1))
+            self.logger.log("PPT 클립보드 슬라이드 패키지 복원 시도")
+
+            last_error = None
+            package_data = None
+            for retry in range(1, self.PPT_CLIPBOARD_RETRY_COUNT + 2):
+                try:
+                    source_pres.Slides.Range(slide_indices).Copy()
+                    time.sleep(max(self.PPT_CLIPBOARD_RETRY_DELAY, 0.2))
+                    package_data = self._get_powerpoint_clipboard_package()
+                    break
+                except Exception as error:
+                    last_error = error
+                    if retry <= self.PPT_CLIPBOARD_RETRY_COUNT:
+                        time.sleep(self.PPT_CLIPBOARD_RETRY_DELAY)
+
+            if not package_data:
+                raise Exception(f"PPT 클립보드 슬라이드 패키지를 가져오지 못했습니다: {last_error}")
+
+            target_ext = os.path.splitext(save_path)[1].lower() or ".pptx"
+            self._write_ppt_clipboard_package_as_pptx(package_data, temp_path, target_ext)
+            self._publish_verified_file(temp_path, save_path, "PPT 클립보드 슬라이드 패키지")
+            self.logger.log(f"PPT 클립보드 슬라이드 패키지 복원 완료: {save_path}")
+        except Exception:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise
+
     def _save_ppt_slide_clone(self, source_pres, save_path):
         """PowerPoint 내부 복사/붙여넣기로 슬라이드를 최대한 원본에 가깝게 복제한다."""
         target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
@@ -1153,6 +1245,21 @@ class DocumentExtractorV3:
                     self.logger.log(
                         f"PPT 원본 복사 결과 검증 실패, 슬라이드 복제로 전환: {str(copy_error)[:120]}"
                     )
+                    try:
+                        self.root.after(0, lambda: self.status_text.set("원본 복사 실패, 클립보드 슬라이드 패키지 복원 중..."))
+                        self.root.after(0, lambda: self.progress_var.set(25))
+                        self._save_ppt_clipboard_package_copy(source_pres, save_path)
+                        self._log_elapsed("PPT 클립보드 슬라이드 패키지 복원 시간", extract_start)
+                        self.root.after(0, lambda: self.progress_var.set(100))
+                        self.root.after(0, lambda: self.status_text.set("PPT 원본 구조 복원 완료!"))
+                        self.root.after(0, lambda: messagebox.showinfo("완료",
+                            f"PPT 원본 구조 복원 완료!\n{save_path}\n\n총 {total_slides}장"))
+                        return
+                    except Exception as package_error:
+                        self.logger.log(
+                            f"PPT 클립보드 슬라이드 패키지 복원 실패, 슬라이드 복제로 전환: {str(package_error)[:120]}"
+                        )
+
                     try:
                         self.root.after(0, lambda: self.status_text.set("원본 복사 실패, PowerPoint 슬라이드 복제 중..."))
                         self.root.after(0, lambda: self.progress_var.set(30))
