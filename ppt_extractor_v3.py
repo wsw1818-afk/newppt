@@ -922,8 +922,6 @@ class DocumentExtractorV3:
                         variable=self.ppt_extract_mode, value="native_copy").pack(anchor=tk.W)
         ttk.Radiobutton(mode_frame, text="하이브리드 (편집 가능, 느림: 도형 속성 재생성)",
                         variable=self.ppt_extract_mode, value="hybrid").pack(anchor=tk.W)
-        ttk.Radiobutton(mode_frame, text="슬라이드 이미지만 (화면 캡처용, 편집 불가)",
-                        variable=self.ppt_extract_mode, value="image_only").pack(anchor=tk.W)
         ttk.Radiobutton(mode_frame, text="텍스트 중심 + 객체 보존 (도형/이미지는 그림으로 포함)",
                         variable=self.ppt_extract_mode, value="text_only").pack(anchor=tk.W)
 
@@ -1181,6 +1179,14 @@ class DocumentExtractorV3:
         mode = self.ppt_extract_mode.get()
         ppt_index = self.selected_ppt_index.get()
         self.logger.log(f"PPT 추출 설정: mode={mode}, index={ppt_index}, save_path={save_path}")
+
+        if mode == "image_only":
+            messagebox.showwarning(
+                "이미지 변환 비활성화",
+                "텍스트를 이미지로 변환하는 방식은 사용할 수 없습니다.\n"
+                "원본 그대로 복사 또는 텍스트 중심 + 객체 보존을 선택해주세요."
+            )
+            return
 
         if not save_path:
             messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
@@ -1978,17 +1984,107 @@ class DocumentExtractorV3:
         for z_order, shape in shapes_list:
             try:
                 if not self._recreate_shape(shape, target_slide, temp_dir):
-                    self._add_ppt_shape_snapshot(shape, target_slide, temp_dir)
+                    self._handle_unrecreated_shape(shape, target_slide, temp_dir)
             except Exception as e:
-                self.logger.log(f"도형 처리 실패, 이미지 보존 시도: {str(e)[:50]}")
-                self._add_ppt_shape_snapshot(shape, target_slide, temp_dir)
+                self.logger.log(f"도형 처리 실패, 안전 폴백 시도: {str(e)[:50]}")
+                self._handle_unrecreated_shape(shape, target_slide, temp_dir)
 
     def _extract_text_with_object_images(self, source_slide, target_slide, temp_dir):
         """텍스트 중심 모드에서도 도형/이미지는 그림으로 보존한다."""
         self._extract_hybrid(source_slide, target_slide, temp_dir, 0, None)
 
+    def _shape_has_editable_text(self, source_shape):
+        try:
+            return bool(
+                source_shape.HasTextFrame
+                and source_shape.TextFrame.HasText
+                and source_shape.TextFrame.TextRange.Text.strip()
+            )
+        except Exception:
+            return False
+
+    def _shape_contains_editable_text(self, source_shape):
+        if self._shape_has_editable_text(source_shape):
+            return True
+        try:
+            if source_shape.Type == 6:
+                group_items = source_shape.GroupItems
+                for idx in range(1, group_items.Count + 1):
+                    if self._shape_contains_editable_text(group_items(idx)):
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _copy_shape_text_as_textbox(self, source_shape, target_slide, left=None, top=None, width=None, height=None):
+        if not self._shape_has_editable_text(source_shape):
+            return False
+        try:
+            if left is None:
+                left = Emu(int(source_shape.Left * 12700))
+            if top is None:
+                top = Emu(int(source_shape.Top * 12700))
+            if width is None:
+                width = Emu(int(source_shape.Width * 12700))
+            if height is None:
+                height = Emu(int(source_shape.Height * 12700))
+            textbox = target_slide.shapes.add_textbox(left, top, width, height)
+            self._copy_text_frame(source_shape, textbox)
+            return True
+        except Exception as e:
+            self.logger.log(f"텍스트 도형 편집 가능 복원 실패: {str(e)[:60]}")
+            return False
+
+    def _handle_group_shape(self, source_shape, target_slide, temp_dir):
+        """텍스트가 포함된 그룹은 그룹 전체 이미지화 대신 구성 요소별로 복원한다."""
+        try:
+            group_items = source_shape.GroupItems
+        except Exception as e:
+            self.logger.log(f"그룹 구성 요소 접근 실패: {str(e)[:60]}")
+            return False
+
+        handled = 0
+        for idx in range(1, group_items.Count + 1):
+            item = group_items(idx)
+            try:
+                if self._recreate_shape(item, target_slide, temp_dir):
+                    handled += 1
+                    continue
+                if self._handle_unrecreated_shape(item, target_slide, temp_dir):
+                    handled += 1
+            except Exception as e:
+                self.logger.log(f"그룹 내부 도형 {idx} 복원 실패: {str(e)[:60]}")
+                if self._shape_contains_editable_text(item):
+                    if self._copy_shape_text_as_textbox(item, target_slide):
+                        handled += 1
+        return handled > 0
+
+    def _handle_unrecreated_shape(self, source_shape, target_slide, temp_dir):
+        if self._shape_contains_editable_text(source_shape):
+            self.logger.log("텍스트 포함 도형은 이미지 폴백 금지, 편집 가능 텍스트로 복원")
+            if self._copy_shape_text_as_textbox(source_shape, target_slide):
+                return True
+            try:
+                if source_shape.Type == 6:
+                    return self._handle_group_shape(source_shape, target_slide, temp_dir)
+            except Exception:
+                pass
+            return False
+        return self._add_ppt_shape_snapshot(source_shape, target_slide, temp_dir)
+
     def _add_ppt_shape_snapshot(self, source_shape, target_slide, temp_dir, left=None, top=None, width=None, height=None):
         """재생성할 수 없는 PPT 도형을 이미지 스냅샷으로 보존한다."""
+        if self._shape_contains_editable_text(source_shape):
+            self.logger.log("텍스트 포함 도형 스냅샷 차단: 이미지 변환 대신 텍스트 복원")
+            if self._copy_shape_text_as_textbox(source_shape, target_slide, left, top, width, height):
+                return True
+            try:
+                if source_shape.Type == 6:
+                    return self._handle_group_shape(source_shape, target_slide, temp_dir)
+            except Exception:
+                pass
+            return False
+
         img_path = None
         try:
             if left is None:
@@ -2071,6 +2167,8 @@ class DocumentExtractorV3:
 
             # Group
             if shape_type == 6:
+                if self._shape_contains_editable_text(source_shape):
+                    return self._handle_group_shape(source_shape, target_slide, temp_dir)
                 return self._add_ppt_shape_snapshot(source_shape, target_slide, temp_dir, left, top, width, height)
 
             # Freeform
@@ -2303,6 +2401,9 @@ class DocumentExtractorV3:
 
     def _handle_freeform(self, source_shape, target_slide, temp_dir, left, top, width, height):
         """Freeform 처리"""
+        if self._shape_has_editable_text(source_shape):
+            return self._copy_shape_text_as_textbox(source_shape, target_slide, left, top, width, height)
+
         img_path = None
         for retry in range(self.PPT_CLIPBOARD_RETRY_COUNT):
             try:
