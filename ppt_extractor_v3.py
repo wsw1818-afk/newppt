@@ -922,7 +922,7 @@ class DocumentExtractorV3:
                         variable=self.ppt_extract_mode, value="native_copy").pack(anchor=tk.W)
         ttk.Radiobutton(mode_frame, text="하이브리드 (편집 가능, 느림: 도형 속성 재생성)",
                         variable=self.ppt_extract_mode, value="hybrid").pack(anchor=tk.W)
-        ttk.Radiobutton(mode_frame, text="슬라이드 이미지만 (권장: 빠르고 안정적)",
+        ttk.Radiobutton(mode_frame, text="슬라이드 이미지만 (화면 캡처용, 편집 불가)",
                         variable=self.ppt_extract_mode, value="image_only").pack(anchor=tk.W)
         ttk.Radiobutton(mode_frame, text="텍스트 중심 + 객체 보존 (도형/이미지는 그림으로 포함)",
                         variable=self.ppt_extract_mode, value="text_only").pack(anchor=tk.W)
@@ -1243,8 +1243,9 @@ class DocumentExtractorV3:
                     return
                 except Exception as copy_error:
                     self.logger.log(
-                        f"PPT 원본 복사 결과 검증 실패, 슬라이드 복제로 전환: {str(copy_error)[:120]}"
+                        f"PPT 원본 복사 결과 검증 실패, 원본 구조 복원 경로로 전환: {str(copy_error)[:120]}"
                     )
+                    package_error_detail = ""
                     try:
                         self.root.after(0, lambda: self.status_text.set("원본 복사 실패, 클립보드 슬라이드 패키지 복원 중..."))
                         self.root.after(0, lambda: self.progress_var.set(25))
@@ -1256,42 +1257,32 @@ class DocumentExtractorV3:
                             f"PPT 원본 구조 복원 완료!\n{save_path}\n\n총 {total_slides}장"))
                         return
                     except Exception as package_error:
+                        package_error_detail = str(package_error)[:200]
                         self.logger.log(
-                            f"PPT 클립보드 슬라이드 패키지 복원 실패, 슬라이드 복제로 전환: {str(package_error)[:120]}"
+                            f"PPT 클립보드 슬라이드 패키지 복원 실패, 슬라이드 복제로 전환: {package_error_detail[:120]}"
                         )
 
                     try:
                         self.root.after(0, lambda: self.status_text.set("원본 복사 실패, PowerPoint 슬라이드 복제 중..."))
                         self.root.after(0, lambda: self.progress_var.set(30))
                         self._save_ppt_slide_clone(source_pres, save_path)
-                        visual_path = self._try_save_ppt_visual_companion(source_pres, save_path)
                         self._log_elapsed("PPT 슬라이드 복제 시간", extract_start)
                         self.root.after(0, lambda: self.progress_var.set(100))
                         self.root.after(0, lambda: self.status_text.set("PPT 슬라이드 복제 완료!"))
                         self.root.after(0, lambda: messagebox.showinfo("완료",
-                            f"PPT 슬라이드 복제 완료!\n{save_path}\n\n"
-                            f"화면 그대로 추가본:\n{visual_path or '생성 실패'}\n\n"
-                            f"총 {total_slides}장"))
+                            f"PPT 슬라이드 복제 완료!\n{save_path}\n\n총 {total_slides}장"))
                         return
                     except Exception as clone_error:
                         self.logger.log(
-                            f"PPT 슬라이드 복제 실패, 화면 그대로 저장 시도: {str(clone_error)[:120]}"
+                            f"PPT 슬라이드 복제 실패, 이미지/하이브리드 자동 전환 안 함: {str(clone_error)[:120]}"
                         )
-                        try:
-                            self.root.after(0, lambda: self.status_text.set("슬라이드 복제 실패, 화면 그대로 저장 중..."))
-                            self._save_ppt_visual_copy(source_pres, save_path)
-                            self._log_elapsed("PPT 화면 그대로 저장 시간", extract_start)
-                            self.root.after(0, lambda: self.progress_var.set(100))
-                            self.root.after(0, lambda: self.status_text.set("PPT 화면 그대로 저장 완료!"))
-                            self.root.after(0, lambda: messagebox.showinfo("완료",
-                                f"PPT 화면 그대로 저장 완료!\n{save_path}\n\n총 {total_slides}장"))
-                            return
-                        except Exception as visual_error:
-                            self.logger.log(
-                                f"PPT 화면 그대로 저장 실패, 하이브리드 재구성으로 전환: {str(visual_error)[:120]}"
-                            )
-                            self.root.after(0, lambda: self.status_text.set("화면 그대로 저장 실패, PPT 재구성 중..."))
-                            mode = "hybrid"
+                        raise Exception(
+                            "편집 가능한 PPT 원본 구조 복원에 실패했습니다. 이미지 변환은 비활성화되어 있습니다.\n"
+                            f"- 원본 복사 실패: {str(copy_error)[:200]}\n"
+                            f"- 클립보드 슬라이드 패키지 실패: {package_error_detail or '확인 불가'}\n"
+                            f"- PowerPoint 슬라이드 복제 실패: {str(clone_error)[:200]}\n\n"
+                            "원본 PPT를 PowerPoint에 연 상태로 두고 다시 시도하거나, DRM/보안 정책을 해제한 뒤 저장해야 합니다."
+                        ) from clone_error
 
             if not HAS_PPTX:
                 raise Exception("python-pptx 패키지가 필요합니다. pip install python-pptx")
