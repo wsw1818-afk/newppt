@@ -3,6 +3,7 @@ build/
 dist/
 *.spec
 !DocumentExtractor_v3.spec
+!DocumentExtractor_v3_folder.spec
 
 # Python cache
 __pycache__/

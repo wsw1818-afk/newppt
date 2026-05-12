@@ -3684,7 +3684,56 @@ def check_dependencies():
         sys.exit(1)
 
 
+def write_startup_error(exc):
+    """GUI가 뜨기 전 실패도 사용자가 전달할 수 있게 파일로 남긴다."""
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    candidates = [
+        os.path.join(os.path.expanduser("~"), "Desktop"),
+        os.path.join(os.path.expanduser("~"), "Documents"),
+        tempfile.gettempdir(),
+    ]
+    lines = [
+        "=== DocumentExtractor v3 startup error ===",
+        f"time: {datetime.datetime.now()}",
+        f"executable: {sys.executable}",
+        f"argv: {sys.argv}",
+        f"cwd: {os.getcwd()}",
+        f"frozen: {getattr(sys, 'frozen', False)}",
+        f"exception: {type(exc).__name__}: {exc}",
+        "",
+        traceback.format_exc(),
+    ]
+    for folder in candidates:
+        try:
+            if not folder:
+                continue
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, f"DocExtractor_Startup_Error_{timestamp}.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            return path
+        except Exception:
+            pass
+    return None
+
+
 if __name__ == "__main__":
-    check_dependencies()
-    app = DocumentExtractorV3()
-    app.run()
+    try:
+        check_dependencies()
+        app = DocumentExtractorV3()
+        app.run()
+    except Exception as exc:
+        error_path = write_startup_error(exc)
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "DocumentExtractor 실행 오류",
+                "프로그램 시작 중 오류가 발생했습니다.\n\n"
+                f"{type(exc).__name__}: {exc}\n\n"
+                f"오류 로그: {error_path or '생성 실패'}"
+            )
+            root.destroy()
+        except Exception:
+            pass
+        sys.exit(1)

@@ -31,6 +31,9 @@
 - PPT 기본 원본 복사 모드는 이미지/하이브리드 자동 전환을 하지 않는다. 편집 가능한 구조 복원 경로가 모두 실패하면 실패 처리한다.
 - PPT 하이브리드/텍스트 중심 재구성에서도 텍스트가 포함된 도형/그룹은 이미지 스냅샷으로 변환하지 않는다.
 - 최신 `DocumentExtractor_v3.exe`는 결과물 폴더에 복사되었고, 빌드본과 SHA256 해시가 같다.
+- 회사 보안 PC 대응으로 단일 EXE 빌드의 UPX 압축을 비활성화했다.
+- 회사 보안 솔루션이 단일 EXE 자가해제 방식을 차단할 때를 대비해 폴더형 배포본(`DocumentExtractor_v3_folder`)을 추가했다.
+- GUI 생성 전 예외가 발생하면 `DocExtractor_Startup_Error_YYYYMMDD_HHMMSS.txt`를 바탕화면/문서/임시폴더 순서로 남긴다.
 
 ## Verification
 - `py -m py_compile ppt_extractor_v3.py document_extractor.py pdf_printer.py ppt_extractor.py ppt_extractor_v2.py` -> 성공
@@ -118,6 +121,15 @@
 - 2026-05-12 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
 - 2026-05-12 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 복사 -> 성공
 - 2026-05-12 배포본 SHA256 -> `C3AF3B5F9DEE46C1151D4F3B583DECBDF26043F33C35555C27CDF6E7ED2D714D`
+- 2026-05-12 회사 보안 PC 대응: `DocumentExtractor_v3.spec`의 `upx=False` 변경
+- 2026-05-12 회사 보안 PC 대응: `DocumentExtractor_v3_folder.spec`, `build_security_pc.bat` 추가
+- 2026-05-12 `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- 2026-05-12 `git diff --check` -> 성공
+- 2026-05-12 `py scripts\goal_verify_v3.py --clean` -> PASS 8, SKIP 1, FAIL 0
+- 2026-05-12 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-12 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3_folder.spec` -> 성공
+- 2026-05-12 단일 EXE 배포본 SHA256 -> `A5DA1358FE1364185435D0DA90DDC5DE91E3AAAD4A982F7B51B809C7509EC2F3`
+- 2026-05-12 폴더형 배포본 EXE SHA256 -> `F93E4D00443C54EB43CEC1300E7DD2DEB55032228E8BBBD7867B48604A056FC0`
 
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
@@ -129,11 +141,13 @@
 - `SCDSA004`처럼 이미 DRM 컨테이너로 저장된 파일은 그 파일만으로 정상 PPTX 복구가 불가능하다. 원본 문서를 PowerPoint에 연 상태에서 새 EXE로 다시 추출해야 한다.
 - Windows 11 새 메모장은 자동 검증에서 SKIP됨. 현재 Win32 Edit/RichEdit 방식으로 제한적이라 UI Automation 검토 여지가 있다.
 - `ppt_extractor_v3.py`에는 진단 없이 삼키는 `except:`/`except: pass`가 일부 남아 있다.
+- 회사 보안 PC에서 시작 오류 로그도 생성되지 않으면 Python 코드 진입 전 보안 솔루션이 실행 파일을 차단한 것으로 보고 격리/차단 로그 또는 허용 정책 확인이 필요하다.
+- 회사 보안 PC에서는 먼저 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_folder\DocumentExtractor_v3.exe`를 실행한다. 폴더 내부 파일을 분리하면 실행이 깨질 수 있다.
 
 ## Next
-1. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토
-2. 실제 사용자 문서로 HWP/Word/메모장 탭 수동 확인
-3. 멈춤 재현 시 바탕화면 `DocExtractor_Log_*.txt`의 `SaveCopyAs 진행 중` 로그와 처리 시간 로그로 병목 구간 확인
+1. 회사 보안 PC에서 폴더형 배포본 실행 여부와 `DocExtractor_Startup_Error_*.txt` 생성 여부 확인
+2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토
+3. 실제 사용자 문서로 HWP/Word/메모장 탭 수동 확인
 
 ---
 ## Archive Rule
