@@ -344,6 +344,14 @@ class DocumentExtractorV3:
 
         raise Exception(f"{display_name}에 연결할 수 없습니다. {display_name}를 먼저 실행해주세요.")
 
+    def _is_expected_app_not_running(self, exc, display_name):
+        """사용자가 아직 앱을 열지 않은 정상 감지 실패인지 판단한다."""
+        message = str(exc)
+        return (
+            f"{display_name}에 연결할 수 없습니다" in message
+            and "먼저 실행" in message
+        )
+
     def _get_ppt_app(self, allow_dispatch=True):
         return self._connect_com_app("PowerPoint.Application", "PowerPoint", allow_dispatch=allow_dispatch)
 
@@ -1499,14 +1507,21 @@ class DocumentExtractorV3:
                 self.root.after(0, clear_combo)
 
         except Exception as e:
-            self.logger.error("PPT 감지 실패", e)
+            expected_not_running = self._is_expected_app_not_running(e, "PowerPoint")
+            if expected_not_running:
+                self.logger.log(f"PPT 감지: PowerPoint가 아직 실행 중이 아닙니다. ({str(e)[:80]})")
+            else:
+                self.logger.error("PPT 감지 실패", e)
             self.ppt_list = []
             err_msg = str(e)[:30]
             def show_error():
                 self.ppt_combo.set("")
                 self.ppt_doc_name.set("열린 PPT 없음")
                 self.ppt_slide_count.set("-")
-                self.status_text.set(f"PPT 감지 실패: {err_msg}")
+                if expected_not_running:
+                    self.status_text.set("PPT를 먼저 열어주세요")
+                else:
+                    self.status_text.set(f"PPT 감지 실패: {err_msg}")
             self.root.after(0, show_error)
 
         pythoncom.CoUninitialize()
@@ -1798,13 +1813,20 @@ class DocumentExtractorV3:
                 self.root.after(0, clear_combo)
 
         except Exception as e:
-            self.logger.error("Excel 감지 실패", e)
+            expected_not_running = self._is_expected_app_not_running(e, "Excel")
+            if expected_not_running:
+                self.logger.log(f"Excel 감지: Excel이 아직 실행 중이 아닙니다. ({str(e)[:80]})")
+            else:
+                self.logger.error("Excel 감지 실패", e)
             self.excel_list = []
             def show_error():
                 self.excel_combo.set("")
                 self.excel_doc_name.set("열린 Excel 없음")
                 self.excel_sheet_count.set("-")
-                self.status_text.set("Excel 감지 실패")
+                if expected_not_running:
+                    self.status_text.set("Excel을 먼저 열어주세요")
+                else:
+                    self.status_text.set("Excel 감지 실패")
             self.root.after(0, show_error)
 
         pythoncom.CoUninitialize()
@@ -3495,14 +3517,21 @@ class DocumentExtractorV3:
                 self.root.after(0, clear_combo)
 
         except Exception as e:
-            self.logger.error("Word 감지 실패", e)
+            expected_not_running = self._is_expected_app_not_running(e, "Word")
+            if expected_not_running:
+                self.logger.log(f"Word 감지: Word가 아직 실행 중이 아닙니다. ({str(e)[:80]})")
+            else:
+                self.logger.error("Word 감지 실패", e)
             self.word_list = []
             err_msg = str(e)[:30]
             def show_error():
                 self.word_combo.set("")
                 self.word_doc_name.set("열린 Word 없음")
                 self.word_page_count.set("-")
-                self.status_text.set(f"Word 감지 실패: {err_msg}")
+                if expected_not_running:
+                    self.status_text.set("Word를 먼저 열어주세요")
+                else:
+                    self.status_text.set(f"Word 감지 실패: {err_msg}")
             self.root.after(0, show_error)
 
         pythoncom.CoUninitialize()
