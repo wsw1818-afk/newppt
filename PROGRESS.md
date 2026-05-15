@@ -297,6 +297,16 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `3CAA4102C71E8E07F97C8BFF058FCFD3E11B4BCA407F3970AB412FB2FE9C920A`
 
+- 2026-05-15 사용자 로그 반영: PPT 일괄 변환 중 `SaveCopyAs` 실패 후 PowerPoint `다른 이름으로 저장` 대화상자가 남는 문제 확인
+- 2026-05-15 PPT 일괄/직접 변환 개선: 정상 PPTX/PPTM/PPSX/POTX는 PowerPoint를 열지 않고 OpenXML 패키지 검증 후 파일 직접 복사
+- 2026-05-15 PPT 내부 복원이 필요한 DRM/보안 케이스에서는 `SaveCopyAs`를 건너뛰고 클립보드 패키지 -> 슬라이드 복제 순서만 시도하도록 변경
+- 2026-05-15 PowerPoint 프로세스의 남은 modal dialog(`#32770`)를 자동 닫는 정리 루틴 추가
+- 2026-05-15 정상 PPTX no-open smoke test -> PowerPoint 연결 없이 직접 복사 성공
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `5C246F6F0AA2CC1B58FABF105B240CC75301DE49FE901D410F4CDE6E11321CAE`
+
 ## Next
 1. 실제 사용자 문서로 Word/메모장 탭 수동 확인
 2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토

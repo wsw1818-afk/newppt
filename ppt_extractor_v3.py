@@ -1091,6 +1091,31 @@ class DocumentExtractorV3:
                     pass
             raise
 
+    def _publish_existing_verified_file(self, source_path, save_path, label):
+        """이미 정상 Office 패키지인 파일은 Office를 열지 않고 그대로 복사한다."""
+        if os.path.abspath(source_path).lower() == os.path.abspath(save_path).lower():
+            raise Exception("원본과 같은 경로로는 복사할 수 없습니다.")
+        self._validate_office_openxml(source_path, label)
+        target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+
+        ext = os.path.splitext(save_path)[1] or ".tmp"
+        fd, stage_path = tempfile.mkstemp(prefix=".docextract_", suffix=ext, dir=target_dir)
+        os.close(fd)
+        try:
+            shutil.copy2(source_path, stage_path)
+            self._validate_office_openxml(stage_path, f"{label} 최종 복사")
+            os.replace(stage_path, save_path)
+            self._validate_office_openxml(save_path, f"{label} 최종 파일")
+            self.logger.log(f"{label} 파일 직접 복사 완료: {save_path}")
+        except Exception:
+            if os.path.exists(stage_path):
+                try:
+                    os.remove(stage_path)
+                except Exception:
+                    pass
+            raise
+
     def _validate_office_openxml(self, path, label):
         """확장자가 OpenXML이면 실제 ZIP 패키지인지 확인한다."""
         ext = os.path.splitext(path)[1].lower()
@@ -1174,6 +1199,61 @@ class DocumentExtractorV3:
                 except Exception:
                     pass
             raise
+
+    def _get_app_process_id(self, app):
+        """Office 애플리케이션의 최상위 창 기준 프로세스 ID를 가져온다."""
+        hwnd = 0
+        for attr in ("HWND", "Hwnd", "hwnd"):
+            try:
+                hwnd = int(getattr(app, attr))
+                if hwnd:
+                    break
+            except Exception:
+                hwnd = 0
+        if not hwnd:
+            return None
+
+        process_id = wintypes.DWORD()
+        try:
+            ctypes.windll.user32.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(process_id))
+            return int(process_id.value) if process_id.value else None
+        except Exception:
+            return None
+
+    def _close_office_modal_dialogs(self, app, label):
+        """자동 변환 중 남은 Office 저장/경고 대화상자를 닫는다."""
+        process_id = self._get_app_process_id(app)
+        if not process_id:
+            return 0
+
+        user32 = ctypes.windll.user32
+        WM_CLOSE = 0x0010
+        closed = []
+        enum_proc_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def enum_proc(hwnd, lparam):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if int(pid.value) != process_id:
+                    return True
+                class_name = self._get_window_class_name(hwnd)
+                if class_name != "#32770":
+                    return True
+                title = self._get_window_title(hwnd)
+                user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+                closed.append(title or class_name)
+            except Exception:
+                pass
+            return True
+
+        user32.EnumWindows(enum_proc_type(enum_proc), 0)
+        if closed:
+            self.logger.log(f"{label} 남은 대화상자 닫기: {len(closed)}개 ({', '.join(closed[:3])})")
+            time.sleep(0.2)
+        return len(closed)
 
     def _get_powerpoint_clipboard_package(self):
         """PowerPoint slide copy clipboard package bytes."""
@@ -1949,6 +2029,12 @@ class DocumentExtractorV3:
         if kind == "text":
             self._convert_text_source_file(source_path, save_path)
             return
+        if kind == "ppt":
+            try:
+                self._publish_existing_verified_file(source_path, save_path, "PPT")
+                return
+            except Exception as direct_copy_error:
+                self.logger.log(f"PPT 직접 파일 복사 불가, PowerPoint 내부 복원 시도: {str(direct_copy_error)[:120]}")
 
         if not HAS_WIN32COM:
             raise Exception("Office 파일 직접 변환에는 pywin32/win32com이 필요합니다.")
@@ -1963,7 +2049,7 @@ class DocumentExtractorV3:
                     app.DisplayAlerts = 1
                 except Exception:
                     pass
-                self._batch_convert_ppt_file(app, source_path, save_path)
+                self._batch_convert_ppt_file(app, source_path, save_path, skip_direct=True)
             elif kind == "excel":
                 app, created = self._get_excel_app()
                 try:
@@ -4682,16 +4768,21 @@ class DocumentExtractorV3:
             self.logger.log(f"일괄 변환 {display_name} 연결 완료 (created={created})")
         return apps[key][0]
 
-    def _batch_convert_ppt_file(self, ppt_app, source_path, target_path):
+    def _batch_convert_ppt_file(self, ppt_app, source_path, target_path, skip_direct=False):
         source_pres = None
         try:
+            if not skip_direct:
+                try:
+                    self._publish_existing_verified_file(source_path, target_path, "PPT 일괄")
+                    return
+                except Exception as direct_copy_error:
+                    self.logger.log(
+                        f"  PPT 파일 직접 복사 불가, PowerPoint 내부 복원 시도: {str(direct_copy_error)[:120]}"
+                    )
+
+            self._close_office_modal_dialogs(ppt_app, "PowerPoint 일괄")
             source_pres = ppt_app.Presentations.Open(source_path, True, False, False)
             self.logger.log(f"  PPT 열기 완료: {source_pres.Name}")
-            try:
-                self._save_native_copy(source_pres, target_path, "PPT 일괄")
-                return
-            except Exception as copy_error:
-                self.logger.log(f"  PPT 일괄 원본 복사 실패, 구조 복원 시도: {str(copy_error)[:120]}")
             try:
                 self._save_ppt_clipboard_package_copy(source_pres, target_path)
                 return
@@ -4699,11 +4790,19 @@ class DocumentExtractorV3:
                 self.logger.log(f"  PPT 일괄 클립보드 패키지 실패, 슬라이드 복제 시도: {str(package_error)[:120]}")
             self._save_ppt_slide_clone(source_pres, target_path)
         finally:
+            try:
+                self._close_office_modal_dialogs(ppt_app, "PowerPoint 일괄")
+            except Exception:
+                pass
             if source_pres is not None:
                 try:
                     source_pres.Close()
                 except Exception:
                     pass
+            try:
+                self._close_office_modal_dialogs(ppt_app, "PowerPoint 일괄")
+            except Exception:
+                pass
 
     def _save_excel_as_openxml_copy(self, source_wb, target_path):
         target_ext = os.path.splitext(target_path)[1].lower()
@@ -4816,16 +4915,27 @@ class DocumentExtractorV3:
                 self.root.after(0, lambda p=source_path: self.batch_status_text.set(f"처리 중: {os.path.basename(p)}"))
 
                 try:
-                    if kind in {"ppt", "excel", "word"} and not HAS_WIN32COM:
-                        raise Exception("Office 일괄 변환에는 pywin32/win32com이 필요합니다.")
                     if kind == "ppt":
+                        try:
+                            self._publish_existing_verified_file(source_path, target_path, "PPT 일괄")
+                            successes.append(target_path)
+                            self.logger.log(f"  일괄 변환 완료: {target_path}")
+                            continue
+                        except Exception as direct_copy_error:
+                            self.logger.log(
+                                f"  PPT 일괄 직접 복사 불가, PowerPoint 내부 복원 시도: {str(direct_copy_error)[:120]}"
+                            )
+                        if not HAS_WIN32COM:
+                            raise Exception("PPT 내부 복원에는 pywin32/win32com이 필요합니다.")
                         ppt_app = self._get_or_create_batch_app(apps, "ppt", self._get_ppt_app, "PowerPoint")
                         try:
                             ppt_app.DisplayAlerts = 1
                         except Exception:
                             pass
-                        self._batch_convert_ppt_file(ppt_app, source_path, target_path)
+                        self._batch_convert_ppt_file(ppt_app, source_path, target_path, skip_direct=True)
                     elif kind == "excel":
+                        if not HAS_WIN32COM:
+                            raise Exception("Excel 일괄 변환에는 pywin32/win32com이 필요합니다.")
                         excel_app = self._get_or_create_batch_app(apps, "excel", self._get_excel_app, "Excel")
                         try:
                             excel_app.DisplayAlerts = False
@@ -4833,6 +4943,8 @@ class DocumentExtractorV3:
                             pass
                         self._batch_convert_excel_file(excel_app, source_path, target_path)
                     elif kind == "word":
+                        if not HAS_WIN32COM:
+                            raise Exception("Word 일괄 변환에는 pywin32/win32com이 필요합니다.")
                         word_app = self._get_or_create_batch_app(apps, "word", self._get_word_app, "Word")
                         self._batch_convert_word_file(word_app, source_path, target_path)
                     elif kind == "text":
