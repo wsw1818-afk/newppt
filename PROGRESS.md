@@ -214,6 +214,11 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `C0773370504CCF670FC97A387AAD4B6BEA877F1A6CA7F870941E8E9F0D644F0C`
 
+- 2026-05-15 앱 차단 진단: 결과물 EXE `DocumentExtractor_v3.exe`는 Authenticode `NotSigned`, Zone.Identifier 없음, SHA256 `C0773370504CCF670FC97A387AAD4B6BEA877F1A6CA7F870941E8E9F0D644F0C`
+- 2026-05-15 로컬 Windows Defender 상태는 비활성화되어 있고 Defender/AppLocker/CodeIntegrity 이벤트에서 `DocumentExtractor` 차단 흔적 없음
+- 2026-05-15 로컬 `Start-Process` 실행 확인 -> `DocumentExtractor_v3` 프로세스 시작 성공 후 수동 종료
+- 2026-05-15 결론: 현재 작업 PC에서는 차단 재현 안 됨. 다른 회사 PC에서 차단된다면 서명되지 않은 PyInstaller 단일 EXE 정책 차단 가능성이 높음
+
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.
