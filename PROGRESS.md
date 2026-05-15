@@ -35,6 +35,7 @@
 - 회사 보안 솔루션이 단일 EXE 자가해제 방식을 차단할 때를 대비해 폴더형 배포본(`DocumentExtractor_v3_folder`)을 추가했다.
 - GUI 생성 전 예외가 발생하면 `DocExtractor_Startup_Error_YYYYMMDD_HHMMSS.txt`를 바탕화면/문서/임시폴더 순서로 남긴다.
 - Word 기본 원본 복사 모드는 이미지/표/머리글/도형 보존을 위해 원본 파일 복사 실패 시 텍스트 재구성으로 자동 하락하지 않는다.
+- Word 원본 파일 복사가 DRM/보안 컨테이너(`SCDS`)로 감기면 Word 내부 `WordOpenXML`을 받아 표/이미지/바닥글이 포함된 정상 `.docx` 패키지 복원을 시도한다.
 - Word 텍스트 재구성 모드는 `.docx` 저장만 허용한다. `.doc`, `.rtf`, `.docm`은 원본 복사 경로에서만 처리한다.
 - Word/메모장 텍스트 재구성 DOCX 저장 시 XML 비호환 제어문자를 제거한다.
 - 메모장 감지는 `Notepad` 클래스 외에 `- Notepad`/`- 메모장` 제목 창도 잡고, 중첩된 `Edit`/`RichEditD2DPT`/`RICHEDIT50W` 컨트롤을 탐색한다.
@@ -153,6 +154,15 @@
 - 2026-05-15 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt`로 복사 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `343D8569F4352E22AD3EFA0A7A79BC8A9232E249A78B6E1B242073DB1E89D302`
 - 2026-05-15 폴더형 배포본 EXE SHA256 -> `FEA2572FE8A905B164032B26E8ECFF291182B7ECCE50FB6A3758DBEAAFC87AB4`
+- 2026-05-15 사용자 Word 로그 분석: 저장된 문서여도 파일 시스템 복사 결과가 `SCDSA004` DRM 컨테이너로 나와 정상 `.docx` 검증 실패
+- 2026-05-15 Word `WordOpenXML` Flat OPC -> 일반 DOCX ZIP 패키지 복원 경로 추가
+- 2026-05-15 `word_openxml_copy` 검증 추가 -> 표 1개, 이미지 1개, 바닥글 유지 PASS
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 10, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3_folder.spec` -> 성공
+- 2026-05-15 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt`로 복사 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `04EC1199B63A5C151172A5F8B22197F9451723E697A9D71AF0A6B873BCFE43E3`
+- 2026-05-15 폴더형 배포본 EXE SHA256 -> `0C8EF8EEBFAC6F275B1F90AF7A02EBF98245AFB37A29FB4D1AD7484217C62772`
 
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
@@ -168,6 +178,7 @@
 - 회사 보안 PC에서는 먼저 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_folder\DocumentExtractor_v3.exe`를 실행한다. 폴더 내부 파일을 분리하면 실행이 깨질 수 있다.
 - HWP는 실제 사용자 문서 기준 다중 창/다중 문서 선택 검증이 아직 필요하다. COM 연결이 특정 창을 정확히 지정하지 못하는 환경에서는 사용자가 대상 문서를 활성화한 뒤 추출해야 한다.
 - Windows 11 새 메모장이 WinUI 전용 텍스트 컨트롤만 노출하면 Win32 방식으로 자동 추출할 수 없다. 현재 검증 환경에서도 Notepad 자동 검증은 SKIP 상태다.
+- WordOpenXML 복원은 `.docx` 대상으로 검증했다. `.docm` 매크로, OLE 임베딩, 특수 보안 플러그인 개체는 추가 실문서 검증이 필요하다.
 
 ## Next
 1. 실제 사용자 문서로 HWP/Word/메모장 탭 수동 확인

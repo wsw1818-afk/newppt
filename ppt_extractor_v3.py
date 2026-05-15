@@ -19,6 +19,7 @@ import traceback
 import io
 import time
 import zipfile
+import base64
 import ctypes
 from ctypes import wintypes
 
@@ -949,6 +950,101 @@ class DocumentExtractorV3:
         if not os.path.exists(save_path) or os.path.getsize(save_path) <= 0:
             raise Exception("Word 파일 복사 후 결과 파일이 생성되지 않았거나 비어 있습니다.")
         self._validate_office_openxml(save_path, "Word")
+
+    def _write_word_flat_opc_as_docx(self, flat_xml, temp_path):
+        """WordOpenXML(Flat OPC)을 일반 DOCX ZIP 패키지로 변환한다."""
+        try:
+            from lxml import etree
+        except Exception as import_error:
+            raise Exception(f"WordOpenXML 변환에는 lxml 패키지가 필요합니다: {import_error}")
+
+        pkg_ns = "http://schemas.microsoft.com/office/2006/xmlPackage"
+        content_types_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+
+        if isinstance(flat_xml, str):
+            root = etree.fromstring(flat_xml.encode("utf-8"))
+        else:
+            root = etree.fromstring(flat_xml)
+
+        part_content_types = []
+        written_names = set()
+        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for part in root.xpath("//pkg:part", namespaces={"pkg": pkg_ns}):
+                raw_name = part.get(f"{{{pkg_ns}}}name") or part.get("name")
+                if not raw_name:
+                    continue
+                zip_name = raw_name.lstrip("/")
+                content_type = part.get(f"{{{pkg_ns}}}contentType") or part.get("contentType")
+                if content_type:
+                    part_name = raw_name if raw_name.startswith("/") else f"/{raw_name}"
+                    part_content_types.append((part_name, content_type))
+
+                xml_data = part.find(f"{{{pkg_ns}}}xmlData")
+                binary_data = part.find(f"{{{pkg_ns}}}binaryData")
+                if xml_data is not None:
+                    children = [child for child in xml_data if isinstance(child.tag, str)]
+                    data = (
+                        etree.tostring(children[0], encoding="UTF-8")
+                        if children else b""
+                    )
+                elif binary_data is not None:
+                    encoded = "".join("".join(binary_data.itertext()).split())
+                    data = base64.b64decode(encoded) if encoded else b""
+                else:
+                    data = b""
+
+                archive.writestr(zip_name, data)
+                written_names.add(zip_name)
+
+            if "[Content_Types].xml" not in written_names:
+                types = etree.Element(f"{{{content_types_ns}}}Types", nsmap={None: content_types_ns})
+                etree.SubElement(
+                    types,
+                    f"{{{content_types_ns}}}Default",
+                    Extension="rels",
+                    ContentType="application/vnd.openxmlformats-package.relationships+xml",
+                )
+                etree.SubElement(
+                    types,
+                    f"{{{content_types_ns}}}Default",
+                    Extension="xml",
+                    ContentType="application/xml",
+                )
+                for part_name, content_type in part_content_types:
+                    etree.SubElement(
+                        types,
+                        f"{{{content_types_ns}}}Override",
+                        PartName=part_name,
+                        ContentType=content_type,
+                    )
+                archive.writestr(
+                    "[Content_Types].xml",
+                    etree.tostring(types, encoding="UTF-8", xml_declaration=True),
+                )
+
+    def _save_word_openxml_copy(self, source_doc, save_path):
+        """DRM 컨테이너 파일 복사가 실패할 때 Word 내부 OOXML로 구조를 복원한다."""
+        target_ext = os.path.splitext(save_path)[1].lower()
+        if target_ext != ".docx":
+            raise Exception("WordOpenXML 구조 복원은 .docx 저장만 지원합니다.")
+
+        temp_path = self._make_local_temp_path(".docx")
+        try:
+            self.logger.log("Word WordOpenXML 구조 복원 시도")
+            flat_xml = source_doc.WordOpenXML
+            if not flat_xml:
+                raise Exception("WordOpenXML 데이터가 비어 있습니다.")
+
+            self._write_word_flat_opc_as_docx(flat_xml, temp_path)
+            self._publish_verified_file(temp_path, save_path, "Word WordOpenXML")
+            self.logger.log(f"Word WordOpenXML 구조 복원 완료: {save_path}")
+        except Exception:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise
 
     def _setup_ppt_tab(self):
         """PPT 탭 설정"""
@@ -3288,14 +3384,33 @@ class DocumentExtractorV3:
                     return
                 except Exception as e:
                     self.logger.log(f"Word 원본 파일 복사 실패: {str(e)[:120]}")
+                    openxml_error = None
+                    if os.path.splitext(save_path)[1].lower() == ".docx":
+                        try:
+                            self.root.after(0, lambda: self.status_text.set("Word 원본 구조 복원 중..."))
+                            self.root.after(0, lambda: self.progress_var.set(30))
+                            self._save_word_openxml_copy(source_doc, save_path)
+                            self.root.after(0, lambda: self.progress_var.set(100))
+                            self.root.after(0, lambda: self.status_text.set("Word 추출 완료! (원본 구조 복원)"))
+                            self.root.after(0, lambda: messagebox.showinfo("완료",
+                                f"Word 추출 완료 (원본 구조 복원)\n\n{save_path}"))
+                            self._log_elapsed("Word 전체 추출 시간", extract_start)
+                            return
+                        except Exception as restore_error:
+                            openxml_error = restore_error
+                            self.logger.log(f"Word WordOpenXML 구조 복원 실패: {str(restore_error)[:120]}")
+
+                    restore_hint = ""
+                    if openxml_error is not None:
+                        restore_hint = f"\nWordOpenXML 복원 원인: {str(openxml_error)}"
                     raise Exception(
-                        "Word 원본 파일 복사에 실패해 중단했습니다.\n"
+                        "Word 원본 파일 복사/구조 복원에 실패해 중단했습니다.\n"
                         "이미지, 표, 머리글/바닥글, 도형을 보존하려면 원본 파일 복사가 필요합니다.\n\n"
                         "해결 방법:\n"
                         "1. Word에서 문서를 먼저 저장하세요.\n"
                         "2. 원본과 같은 확장자로 저장 경로를 선택하세요.\n"
                         "3. 텍스트만 재구성해도 되는 경우에만 '원본 파일 복사 우선' 체크를 해제하고 .docx로 저장하세요.\n\n"
-                        f"원인: {str(e)}"
+                        f"원본 복사 원인: {str(e)}{restore_hint}"
                     )
 
             if not HAS_DOCX:

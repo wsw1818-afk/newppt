@@ -386,6 +386,72 @@ def check_word_safe_copy(out_dir: Path) -> str:
     return f"bytes={copied.stat().st_size} hash={sha256(copied)[:12]}"
 
 
+def check_word_openxml_copy(out_dir: Path) -> str:
+    pythoncom, _pywintypes, win32 = import_com()
+    from ppt_extractor_v3 import DocumentExtractorV3
+
+    class Logger:
+        def log(self, _message):
+            pass
+
+    output = out_dir / "sample_word_openxml_copy.docx"
+    image = out_dir / "sample_word_openxml_image.png"
+    make_png(image, "WordOpenXML")
+
+    pythoncom.CoInitialize()
+    app = None
+    doc = None
+    copied = None
+    try:
+        app = dispatch_isolated(win32, "Word.Application", "Word")
+        app.Visible = False
+        app.DisplayAlerts = 0
+        doc = app.Documents.Add()
+        doc.Content.Text = "verify word openxml copy\n"
+        insert_range = doc.Range(doc.Content.End - 1, doc.Content.End - 1)
+        table = doc.Tables.Add(insert_range, 2, 2)
+        table.Cell(1, 1).Range.Text = "A"
+        table.Cell(1, 2).Range.Text = "B"
+        doc.InlineShapes.AddPicture(str(image), False, True)
+        doc.Sections(1).Footers(1).Range.Text = "verify footer"
+
+        extractor = object.__new__(DocumentExtractorV3)
+        extractor.logger = Logger()
+        extractor._save_word_openxml_copy(doc, str(output))
+
+        copied = app.Documents.Open(str(output), ReadOnly=True, AddToRecentFiles=False)
+        tables = copied.Tables.Count
+        inline_shapes = copied.InlineShapes.Count
+        footer_text = copied.Sections(1).Footers(1).Range.Text
+    finally:
+        if copied is not None:
+            try:
+                copied.Close(False)
+            except Exception:
+                pass
+        if doc is not None:
+            try:
+                doc.Close(False)
+            except Exception:
+                pass
+        if app is not None:
+            try:
+                app.Quit()
+            except Exception:
+                pass
+        pythoncom.CoUninitialize()
+
+    if tables < 1:
+        raise RuntimeError("WordOpenXML copied table missing")
+    if inline_shapes < 1:
+        raise RuntimeError("WordOpenXML copied image missing")
+    if "verify footer" not in footer_text:
+        raise RuntimeError("WordOpenXML copied footer missing")
+    if not zip_has_prefix(output, "word/media/"):
+        raise RuntimeError("WordOpenXML copied media payload missing")
+    return f"tables={tables} inline_shapes={inline_shapes} bytes={output.stat().st_size}"
+
+
 def check_word_xml_text_sanitizer(out_dir: Path) -> str:
     from docx import Document
     from ppt_extractor_v3 import DocumentExtractorV3
@@ -629,6 +695,7 @@ def main() -> int:
         ("ppt_clipboard_package", lambda: check_ppt_clipboard_package(out_dir)),
         ("excel_native_copy", lambda: check_excel_native_copy(out_dir)),
         ("word_safe_copy", lambda: check_word_safe_copy(out_dir)),
+        ("word_openxml_copy", lambda: check_word_openxml_copy(out_dir)),
         ("word_xml_text_sanitizer", lambda: check_word_xml_text_sanitizer(out_dir)),
         ("hwp_getobject_no_spawn", check_hwp_getobject_no_spawn),
         ("hwp_action_save", lambda: check_hwp_action_save(out_dir)),
