@@ -684,7 +684,7 @@ class DocumentExtractorV3:
         if entered:
             self.logger.log(f"한글 UI 저장: 파일명 입력값 확인='{entered}'")
         else:
-            self.logger.log("한글 UI 저장: 파일명 입력값 확인 실패")
+            self.logger.log("한글 UI 저장: 파일명 입력값은 대화상자 제한으로 읽지 못했지만 저장을 계속 진행합니다")
 
         button_hwnd = self._find_save_dialog_button(dialog_hwnd)
         if button_hwnd:
@@ -773,6 +773,9 @@ class DocumentExtractorV3:
                 deadline = time.time() + 20
                 while time.time() < deadline:
                     if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+                        header = self._read_header_hex(save_path, 8)
+                        if header.startswith("53 43 44 53"):
+                            self.logger.log("한글 UI 저장 결과: 회사 보안/DRM 컨테이너(SCDS)로 저장됨")
                         if backup_path and os.path.exists(backup_path):
                             os.remove(backup_path)
                         return

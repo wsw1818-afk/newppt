@@ -206,6 +206,14 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `333569218BACFC026766735D21BB0A8A9FD41DA186E9FD0C6281FEE3FEF1EE76`
 
+- 2026-05-15 사용자 HWP 결과물 `D:\OneDrive\프로젝트\작업중중\11한글_복사본.hwp` 확인 -> 파일 생성됨, 255468 bytes
+- 2026-05-15 HWP 결과물 헤더 `SCDSA004` 확인 -> 회사 보안/DRM 컨테이너로 저장된 상태
+- 2026-05-15 한글 UI 저장의 `파일명 입력값 확인 실패` 로그를 실제 실패로 보이지 않게 완화하고 SCDS 저장 결과 로그 추가
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `C0773370504CCF670FC97A387AAD4B6BEA877F1A6CA7F870941E8E9F0D644F0C`
+
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.
