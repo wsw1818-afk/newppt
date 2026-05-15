@@ -203,7 +203,7 @@ class DocumentExtractorV3:
 
         self.root = tk.Tk()
         self.root.title("문서 추출 도구 v3")
-        self.root.geometry("860x580")
+        self.root.geometry("900x660")
         self.root.resizable(False, False)
 
         # 상태 변수 (공통)
@@ -214,6 +214,7 @@ class DocumentExtractorV3:
         self.ppt_doc_name = tk.StringVar(value="감지 중...")
         self.ppt_slide_count = tk.StringVar(value="-")
         self.ppt_save_path = tk.StringVar(value="")
+        self.ppt_source_path = tk.StringVar(value="")
         self.ppt_list = []
         self.selected_ppt_index = tk.IntVar(value=0)
 
@@ -221,6 +222,7 @@ class DocumentExtractorV3:
         self.excel_doc_name = tk.StringVar(value="감지 중...")
         self.excel_sheet_count = tk.StringVar(value="-")
         self.excel_save_path = tk.StringVar(value="")
+        self.excel_source_path = tk.StringVar(value="")
         self.excel_list = []
         self.selected_excel_index = tk.IntVar(value=0)
 
@@ -234,12 +236,14 @@ class DocumentExtractorV3:
         self.word_doc_name = tk.StringVar(value="감지 중...")
         self.word_page_count = tk.StringVar(value="-")
         self.word_save_path = tk.StringVar(value="")
+        self.word_source_path = tk.StringVar(value="")
         self.word_list = []
         self.selected_word_index = tk.IntVar(value=0)
 
         # 메모장 상태 변수
         self.notepad_doc_name = tk.StringVar(value="감지 중...")
         self.notepad_save_path = tk.StringVar(value="")
+        self.notepad_source_path = tk.StringVar(value="")
         self.notepad_list = []
 
         # 일괄 변환 상태
@@ -329,7 +333,7 @@ class DocumentExtractorV3:
         ttk.Label(header_frame, text="문서 추출 도구 v3", style="Title.TLabel").pack(anchor=tk.W)
         ttk.Label(
             header_frame,
-            text="PPT, Excel, Word, 메모장을 감지하고 원본 구조를 우선 보존해 새 파일로 내보냅니다.",
+            text="PPT, Excel, Word, 메모장을 파일 또는 열린 문서에서 가져와 새 파일로 내보냅니다.",
             style="Subtitle.TLabel",
         ).pack(anchor=tk.W, pady=(2, 0))
 
@@ -1611,7 +1615,14 @@ class DocumentExtractorV3:
         tab = self.ppt_tab
 
         # 문서 정보 프레임
-        info_frame = self._create_section(tab, "열린 PPT 선택")
+        info_frame = self._create_section(tab, "PPT 입력 선택")
+
+        source_inner = ttk.Frame(info_frame, style="Card.TFrame")
+        source_inner.pack(fill=tk.X, pady=2)
+        ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
+        ttk.Entry(source_inner, textvariable=self.ppt_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(source_inner, text="찾아보기", command=self.browse_ppt_source_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # PPT 선택 콤보박스
         select_frame = ttk.Frame(info_frame)
@@ -1664,7 +1675,14 @@ class DocumentExtractorV3:
         tab = self.excel_tab
 
         # 문서 정보 프레임
-        info_frame = self._create_section(tab, "열린 Excel 선택")
+        info_frame = self._create_section(tab, "Excel 입력 선택")
+
+        source_inner = ttk.Frame(info_frame, style="Card.TFrame")
+        source_inner.pack(fill=tk.X, pady=2)
+        ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
+        ttk.Entry(source_inner, textvariable=self.excel_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(source_inner, text="찾아보기", command=self.browse_excel_source_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # Excel 선택 콤보박스
         select_frame = ttk.Frame(info_frame)
@@ -1821,6 +1839,191 @@ class DocumentExtractorV3:
         elif current_tab == 4:  # 일괄 변환
             self.status_text.set("일괄 변환 파일을 추가하세요")
 
+    def _make_unique_output_path_with_ext(self, output_dir, source_path, ext):
+        stem = os.path.splitext(os.path.basename(source_path))[0]
+        candidate = os.path.join(output_dir, f"{stem}_복사본{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+        for index in range(2, 1000):
+            candidate = os.path.join(output_dir, f"{stem}_복사본_{index}{ext}")
+            if not os.path.exists(candidate):
+                return candidate
+        raise Exception(f"출력 파일명을 만들 수 없습니다: {source_path}")
+
+    def _default_direct_save_path(self, source_path, kind, preferred_ext=None):
+        output_dir = os.path.dirname(os.path.abspath(source_path)) or os.getcwd()
+        if preferred_ext:
+            return self._make_unique_output_path_with_ext(output_dir, source_path, preferred_ext)
+        return self._make_unique_output_path(output_dir, source_path, kind)
+
+    def _apply_source_file_selection(self, kind, source_var, save_var, path, label, preferred_ext=None):
+        if not path:
+            return
+        source_var.set(path)
+        save_var.set(self._default_direct_save_path(path, kind, preferred_ext))
+        self.status_text.set(f"{label} 파일 선택됨")
+
+    def browse_ppt_source_path(self):
+        path = filedialog.askopenfilename(
+            title="변환할 PPT 파일 선택",
+            filetypes=[
+                ("PowerPoint", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx"),
+                ("모든 파일", "*.*"),
+            ],
+        )
+        self._apply_source_file_selection("ppt", self.ppt_source_path, self.ppt_save_path, path, "PPT")
+
+    def browse_excel_source_path(self):
+        path = filedialog.askopenfilename(
+            title="변환할 Excel 파일 선택",
+            filetypes=[
+                ("Excel", "*.xls;*.xlsx;*.xlsm;*.xlsb"),
+                ("모든 파일", "*.*"),
+            ],
+        )
+        self._apply_source_file_selection("excel", self.excel_source_path, self.excel_save_path, path, "Excel")
+
+    def browse_word_source_path(self):
+        path = filedialog.askopenfilename(
+            title="변환할 Word 파일 선택",
+            filetypes=[
+                ("Word", "*.doc;*.docx;*.docm"),
+                ("모든 파일", "*.*"),
+            ],
+        )
+        self._apply_source_file_selection("word", self.word_source_path, self.word_save_path, path, "Word")
+
+    def browse_notepad_source_path(self):
+        path = filedialog.askopenfilename(
+            title="변환할 TXT 파일 선택",
+            filetypes=[("텍스트", "*.txt"), ("모든 파일", "*.*")],
+        )
+        preferred_ext = ".docx" if self.notepad_save_format.get() == "docx" else ".txt"
+        self._apply_source_file_selection("text", self.notepad_source_path, self.notepad_save_path, path, "TXT", preferred_ext)
+
+    def _prepare_direct_file_conversion(self, kind, source_path, save_path):
+        if not source_path:
+            return None
+        source_path = os.path.abspath(source_path)
+        if not os.path.isfile(source_path):
+            raise Exception(f"선택한 파일이 없습니다: {source_path}")
+        detected_kind = self._batch_file_kind(source_path)
+        if detected_kind != kind:
+            raise Exception(f"선택한 파일 형식이 맞지 않습니다: {source_path}")
+        if not save_path:
+            save_path = self._default_direct_save_path(source_path, kind)
+        save_path = os.path.abspath(save_path)
+        if source_path.lower() == save_path.lower():
+            raise Exception("원본 파일과 같은 경로로 저장할 수 없습니다.")
+        return source_path, save_path
+
+    def _read_text_file_for_conversion(self, source_path):
+        last_error = None
+        for encoding in ("utf-8-sig", "cp949", "utf-16", "utf-8"):
+            try:
+                with open(source_path, "r", encoding=encoding) as source_file:
+                    return source_file.read()
+            except Exception as error:
+                last_error = error
+        raise Exception(f"텍스트 파일 인코딩을 읽을 수 없습니다: {last_error}")
+
+    def _convert_text_source_file(self, source_path, target_path):
+        target_ext = os.path.splitext(target_path)[1].lower()
+        target_dir = os.path.dirname(os.path.abspath(target_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+        if target_ext == ".docx":
+            if not HAS_DOCX:
+                raise Exception("DOCX 저장에는 python-docx 패키지가 필요합니다.")
+            text = self._read_text_file_for_conversion(source_path)
+            doc = DocxDocument()
+            for line in text.splitlines():
+                doc.add_paragraph(self._clean_xml_text(line))
+            doc.save(target_path)
+            self._validate_office_openxml(target_path, "TXT 파일 DOCX 변환")
+            return
+        shutil.copy2(source_path, target_path)
+        if not os.path.exists(target_path) or os.path.getsize(target_path) <= 0:
+            raise Exception("TXT 복사 결과 파일이 없거나 비어 있습니다.")
+
+    def _convert_direct_file(self, kind, source_path, save_path):
+        if kind == "text":
+            self._convert_text_source_file(source_path, save_path)
+            return
+
+        if not HAS_WIN32COM:
+            raise Exception("Office 파일 직접 변환에는 pywin32/win32com이 필요합니다.")
+
+        app = None
+        created = False
+        pythoncom.CoInitialize()
+        try:
+            if kind == "ppt":
+                app, created = self._get_ppt_app()
+                try:
+                    app.DisplayAlerts = 1
+                except Exception:
+                    pass
+                self._batch_convert_ppt_file(app, source_path, save_path)
+            elif kind == "excel":
+                app, created = self._get_excel_app()
+                try:
+                    app.DisplayAlerts = False
+                except Exception:
+                    pass
+                self._batch_convert_excel_file(app, source_path, save_path)
+            elif kind == "word":
+                app, created = self._get_word_app()
+                self._batch_convert_word_file(app, source_path, save_path)
+            else:
+                raise Exception(f"지원하지 않는 직접 변환 형식입니다: {kind}")
+        finally:
+            if created and app is not None:
+                try:
+                    app.Quit()
+                except Exception:
+                    pass
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+    def _start_direct_file_conversion(self, kind, source_path, save_path, save_var, button, label):
+        try:
+            source_path, save_path = self._prepare_direct_file_conversion(kind, source_path, save_path)
+        except Exception as error:
+            messagebox.showwarning("경고", str(error))
+            return True
+
+        save_var.set(save_path)
+        button.config(state=tk.DISABLED)
+        self.progress_var.set(0)
+        thread = threading.Thread(
+            target=self._extract_direct_file,
+            args=(kind, source_path, save_path, button, label),
+        )
+        thread.daemon = True
+        thread.start()
+        return True
+
+    def _extract_direct_file(self, kind, source_path, save_path, button, label):
+        self.logger.log(f"=== {label} 파일 직접 변환 시작 ===")
+        extract_start = time.perf_counter()
+        try:
+            self.root.after(0, lambda: self.status_text.set(f"{label} 파일 변환 중..."))
+            self.root.after(0, lambda: self.progress_var.set(10))
+            self._convert_direct_file(kind, source_path, save_path)
+            self._log_elapsed(f"{label} 파일 직접 변환 시간", extract_start)
+            self.root.after(0, lambda: self.progress_var.set(100))
+            self.root.after(0, lambda: self.status_text.set(f"{label} 파일 변환 완료!"))
+            self.root.after(0, lambda: messagebox.showinfo("완료", f"{label} 파일 변환 완료!\n{save_path}"))
+        except Exception as error:
+            message = str(error)
+            self.logger.error(f"{label} 파일 직접 변환 오류", error)
+            self.root.after(0, lambda: self.status_text.set(f"오류: {message[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"파일 변환 중 오류:\n{message}"))
+        finally:
+            self.root.after(0, lambda: button.config(state=tk.NORMAL))
+
     # ========== PPT 관련 메서드 ==========
 
     def browse_ppt_save_path(self):
@@ -1943,6 +2146,13 @@ class DocumentExtractorV3:
         mode = self.ppt_extract_mode.get()
         ppt_index = self.selected_ppt_index.get()
         self.logger.log(f"PPT 추출 설정: mode={mode}, index={ppt_index}, save_path={save_path}")
+
+        direct_source = self.ppt_source_path.get().strip()
+        if direct_source:
+            if self._start_direct_file_conversion(
+                "ppt", direct_source, save_path, self.ppt_save_path, self.ppt_extract_button, "PPT"
+            ):
+                return
 
         if mode == "image_only":
             messagebox.showwarning(
@@ -2254,6 +2464,13 @@ class DocumentExtractorV3:
         include_format = self.excel_include_format.get()
         values_only = self.excel_include_formulas.get()
         excel_index = self.selected_excel_index.get()
+
+        direct_source = self.excel_source_path.get().strip()
+        if direct_source:
+            if self._start_direct_file_conversion(
+                "excel", direct_source, save_path, self.excel_save_path, self.excel_extract_button, "Excel"
+            ):
+                return
 
         if not save_path:
             messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
@@ -3783,7 +4000,14 @@ class DocumentExtractorV3:
         tab = self.word_tab
 
         # 문서 정보 프레임
-        info_frame = self._create_section(tab, "열린 Word 선택")
+        info_frame = self._create_section(tab, "Word 입력 선택")
+
+        source_inner = ttk.Frame(info_frame, style="Card.TFrame")
+        source_inner.pack(fill=tk.X, pady=2)
+        ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
+        ttk.Entry(source_inner, textvariable=self.word_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(source_inner, text="찾아보기", command=self.browse_word_source_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # Word 선택 콤보박스
         select_frame = ttk.Frame(info_frame)
@@ -3952,6 +4176,13 @@ class DocumentExtractorV3:
         include_format = self.word_include_format.get()
         use_saveas = self.word_use_saveas.get()
         word_index = self.selected_word_index.get()
+
+        direct_source = self.word_source_path.get().strip()
+        if direct_source:
+            if self._start_direct_file_conversion(
+                "word", direct_source, save_path, self.word_save_path, self.word_extract_button, "Word"
+            ):
+                return
 
         if not use_saveas and not HAS_DOCX:
             messagebox.showerror("오류", "python-docx 패키지가 필요합니다.\npip install python-docx")
@@ -4219,6 +4450,13 @@ class DocumentExtractorV3:
                   text="현재 열려있는 메모장 창의 텍스트를 추출합니다.\n"
                        "메모장을 먼저 열고 '감지' 버튼을 누르세요.",
                   font=("맑은 고딕", 9), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+
+        source_inner = ttk.Frame(info_frame, style="Card.TFrame")
+        source_inner.pack(fill=tk.X, pady=5)
+        ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
+        ttk.Entry(source_inner, textvariable=self.notepad_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(source_inner, text="찾아보기", command=self.browse_notepad_source_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # 메모장 선택 콤보박스
         select_frame = ttk.Frame(info_frame)
@@ -4742,6 +4980,17 @@ class DocumentExtractorV3:
         save_path = self.notepad_save_path.get()
         save_format = self.notepad_save_format.get()
         selected_idx = self.notepad_combo.current()
+
+        direct_source = self.notepad_source_path.get().strip()
+        if direct_source:
+            if not save_path:
+                preferred_ext = ".docx" if save_format == "docx" else ".txt"
+                save_path = self._default_direct_save_path(direct_source, "text", preferred_ext)
+                self.notepad_save_path.set(save_path)
+            if self._start_direct_file_conversion(
+                "text", direct_source, save_path, self.notepad_save_path, self.notepad_extract_button, "TXT"
+            ):
+                return
 
         if not save_path:
             messagebox.showwarning("경고", "저장 경로를 선택해주세요.")

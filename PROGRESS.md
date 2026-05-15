@@ -288,6 +288,15 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `C872C62A71A00992771275DBFA5795D625A88DBA39060ECDCE6A07FED217FBDD`
 
+- 2026-05-15 개별 PPT/Excel/Word/메모장 화면에도 `파일 선택` 직접 변환 경로 추가. 문서를 미리 열지 않아도 선택 파일을 내부적으로 열어 변환 가능
+- 2026-05-15 파일 선택 시 저장 경로는 원본 폴더의 `_복사본` 이름으로 자동 채움. 기존 열린 문서 감지/추출 경로도 계속 유지
+- 2026-05-15 TXT 직접 변환 smoke test -> TXT 복사 및 DOCX 변환 성공
+- 2026-05-15 화면 높이를 `900x660`으로 조정해 직접 파일 선택 UI와 추출 버튼이 잘리지 않게 수정
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `3CAA4102C71E8E07F97C8BFF058FCFD3E11B4BCA407F3970AB412FB2FE9C920A`
+
 ## Next
 1. 실제 사용자 문서로 Word/메모장 탭 수동 확인
 2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토
