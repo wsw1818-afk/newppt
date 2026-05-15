@@ -230,6 +230,14 @@
 - 2026-05-15 가능한 합법 경로는 SoftCamp SDF 공식 복호화 API(`/api/decryption`) 또는 SDF SDK(`CreateDecryptFile`) 연동이며, 둘 다 회사 IT/보안의 licenseKey/key file/권한 제공이 필요함
 - 2026-05-15 pyhwp/OpenHWP/Hancom Hwp SDK는 일반 HWP/HWPX 처리에는 유효하지만 SCDS 컨테이너 자체를 권한 없이 일반 HWP로 복원하는 대안은 아님
 
+- 2026-05-15 HWP는 SoftCamp 공식 복호화 권한 없이는 목적 달성이 불가능하므로 앱 UI에서 한글 탭 제거 결정
+- 2026-05-15 앱 지원 문서 로그를 `PPT, Excel, Word, 메모장`으로 변경하고 Notebook 탭도 PPT/Excel/Word/메모장만 노출
+- 2026-05-15 탭 변경 감지 인덱스를 한글 제거 후 순서(PPT=0, Excel=1, Word=2, 메모장=3)에 맞게 수정
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `7756EA5D0E4F34075F6B15ED9B0AD8166A34146A87EF9EB13BEE091AD8E74489`
+
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.

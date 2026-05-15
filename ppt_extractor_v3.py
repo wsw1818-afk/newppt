@@ -78,8 +78,7 @@ class Logger:
         self.log(f"=== 문서 추출기 v3 로그 시작 ===")
         self.log(f"로그 파일: {self.log_path}")
         self.log(f"시작 시간: {datetime.datetime.now()}")
-        self.log(f"지원 문서: PPT, Excel, 한글, Word, 메모장")
-        self.log(f"한글 저장: FileSaveAs_S 액션 우선")
+        self.log(f"지원 문서: PPT, Excel, Word, 메모장")
         self.log("")
 
     def log(self, message):
@@ -187,7 +186,7 @@ AUTOSHAPE_MAPPING = {
 
 
 class DocumentExtractorV3:
-    """문서 추출기 v3 - PPT, Excel, 한글 지원"""
+    """문서 추출기 v3 - PPT, Excel, Word, 메모장 지원"""
 
     EXCEL_VALUE_CELL_LIMIT = 500_000
     EXCEL_FORMAT_CELL_LIMIT = 50_000
@@ -245,7 +244,7 @@ class DocumentExtractorV3:
 
         # 탭 변경 추적 (중복 감지 방지)
         self.last_tab_index = -1
-        self.tab_detected = [False, False, False, False, False]  # PPT, Excel, 한글, Word, 메모장
+        self.tab_detected = [False, False, False, False]  # PPT, Excel, Word, 메모장
         self._hwp_detecting = False
 
         self.setup_ui()
@@ -283,11 +282,6 @@ class DocumentExtractorV3:
         self.excel_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.excel_tab, text="  Excel  ")
         self._setup_excel_tab()
-
-        # 한글 탭
-        self.hwp_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.hwp_tab, text="  한글  ")
-        self._setup_hwp_tab()
 
         # Word 탭
         self.word_tab = ttk.Frame(self.notebook)
@@ -1603,11 +1597,9 @@ class DocumentExtractorV3:
             self.detect_open_ppt()
         elif current_tab == 1:  # Excel
             self.detect_open_excel()
-        elif current_tab == 2:  # 한글
-            self.detect_open_hwp()
-        elif current_tab == 3:  # Word
+        elif current_tab == 2:  # Word
             self.detect_open_word()
-        elif current_tab == 4:  # 메모장
+        elif current_tab == 3:  # 메모장
             self.detect_open_notepad()
 
     # ========== PPT 관련 메서드 ==========
