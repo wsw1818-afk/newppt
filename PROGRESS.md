@@ -6,6 +6,9 @@
 - Last updated: 2026-05-15
 
 ## Latest Build
+- 2026-05-15 15:26 KST: rebuilt onefile and folder EXE after HWP COM fallback changes.
+- Onefile SHA256: `58EEFED4142BD4C39F997E23649A4369308EB2AD45A96809F8D345EF1C1D71BE`
+- Folder SHA256: `2F3A14C4E443817944EA4A8E510E3A0AECB7D79B94AA119D2C0FF5C9228C702E`
 - 2026-05-15 14:16 KST: rebuilt onefile and folder EXE with PyInstaller.
 - Onefile EXE: `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`
 - Folder EXE: `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_folder\DocumentExtractor_v3.exe`
@@ -50,6 +53,8 @@
 - 메모장 DOCX/TXT 저장 결과 검증을 추가했다.
 
 ## Verification
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 HWP COM fallback log case addressed: if COM creates a blank document, the blank instance is closed and the selected HWP window is tried through a guarded UI Save As path.
 - 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 0, FAIL 0
 - 2026-05-15 HWP checks -> PASS (`hwp_getobject_no_spawn`, `hwp_action_save`)
 - 2026-05-15 Notepad check -> PASS (`notepad_legacy_read`, chars=26)

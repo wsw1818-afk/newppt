@@ -562,6 +562,100 @@ def check_hwp_action_save(out_dir: Path) -> str:
     raise RuntimeError("HWP output file was not created")
 
 
+def check_hwp_window_save_fallback(out_dir: Path) -> str:
+    pythoncom, _pywintypes, win32 = import_com()
+    from ppt_extractor_v3 import DocumentExtractorV3
+
+    class Logger:
+        def log(self, _message):
+            pass
+
+    source = out_dir / "sample_hwp_window_source.hwp"
+    output = out_dir / "sample_hwp_window_fallback.hwp"
+
+    pythoncom.CoInitialize()
+    hwp = None
+    try:
+        last_dispatch_error = None
+        for _attempt in range(3):
+            try:
+                hwp = win32.Dispatch("HWPFrame.HwpObject")
+                break
+            except Exception as exc:
+                last_dispatch_error = exc
+                time.sleep(1)
+        if hwp is None:
+            raise SkipTest(f"HWP COM unavailable: {last_dispatch_error}") from last_dispatch_error
+
+        try:
+            try:
+                hwp.HAction.GetDefault("InsertText", hwp.HParameterSet.HInsertText.HSet)
+                hwp.HParameterSet.HInsertText.Text = "verify hwp window fallback"
+                hwp.HAction.Execute("InsertText", hwp.HParameterSet.HInsertText.HSet)
+            except Exception:
+                pass
+
+            hwp.HAction.GetDefault("FileSaveAs_S", hwp.HParameterSet.HFileOpenSave.HSet)
+            file_open_save = hwp.HParameterSet.HFileOpenSave
+            file_open_save.filename = str(source)
+            try:
+                file_open_save.FileName = str(source)
+            except Exception:
+                pass
+            file_open_save.Format = "HWP"
+            result = hwp.HAction.Execute("FileSaveAs_S", file_open_save.HSet)
+            if result is False:
+                raise RuntimeError("FileSaveAs_S returned False while creating source")
+        except Exception as exc:
+            raise SkipTest(f"HWP UI fallback source setup unavailable: {exc}") from exc
+    finally:
+        if hwp is not None:
+            try:
+                hwp.Quit()
+            except Exception:
+                pass
+        pythoncom.CoUninitialize()
+        time.sleep(1)
+
+    if not source.exists() or source.stat().st_size <= 0:
+        raise RuntimeError("HWP source file was not created")
+
+    extractor = object.__new__(DocumentExtractorV3)
+    extractor.logger = Logger()
+
+    before_hwnds = {hwnd for hwnd, _title in extractor._list_hwp_windows()}
+    os.startfile(str(source))
+
+    hwnd = 0
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        for candidate_hwnd, title in extractor._list_hwp_windows():
+            if candidate_hwnd not in before_hwnds or source.stem in title:
+                hwnd = candidate_hwnd
+                break
+        if hwnd:
+            break
+        time.sleep(0.2)
+
+    if not hwnd:
+        raise SkipTest("HWP visible window unavailable for UI fallback")
+
+    try:
+        try:
+            extractor._save_hwp_via_window(hwnd, str(output), "hwp")
+        except Exception as exc:
+            raise SkipTest(f"HWP UI fallback unavailable: {exc}") from exc
+    finally:
+        try:
+            ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+        except Exception:
+            pass
+
+    if not output.exists() or output.stat().st_size <= 0:
+        raise RuntimeError("HWP UI fallback output file was not created")
+    return f"bytes={output.stat().st_size}"
+
+
 def find_window_for_pid(pid: int, class_name: str | None = None) -> int | None:
     user32 = ctypes.windll.user32
     enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -730,6 +824,7 @@ def main() -> int:
         ("word_xml_text_sanitizer", lambda: check_word_xml_text_sanitizer(out_dir)),
         ("hwp_getobject_no_spawn", check_hwp_getobject_no_spawn),
         ("hwp_action_save", lambda: check_hwp_action_save(out_dir)),
+        ("hwp_window_save_fallback", lambda: check_hwp_window_save_fallback(out_dir)),
         ("notepad_legacy_read", lambda: check_notepad_legacy_read(out_dir)),
     ]
 

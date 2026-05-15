@@ -372,6 +372,10 @@ class DocumentExtractorV3:
         hwp, created = self._get_hwp_app(allow_dispatch=True)
         after_titles = self._list_hwp_window_titles()
         if created and len(after_titles) > len(before_titles):
+            try:
+                hwp.Quit()
+            except Exception:
+                pass
             raise Exception(
                 "한글 COM 연결 중 새 빈 문서가 생성되어 중단했습니다.\n"
                 "기존 한글 문서를 닫았다가 다시 열거나, 프로그램과 한글을 같은 권한으로 실행해 주세요."
@@ -379,9 +383,17 @@ class DocumentExtractorV3:
 
         return hwp, created
 
-    def _get_visible_window_titles(self):
-        """현재 보이는 최상위 창 제목 목록을 가져온다."""
-        titles = []
+    def _is_hwp_window_title(self, title):
+        normalized = (title or "").strip()
+        return (
+            normalized.endswith(" - 한글")
+            or normalized.endswith("- 한글")
+            or " - 한글 " in normalized
+        )
+
+    def _get_visible_windows(self):
+        """현재 보이는 최상위 창의 핸들/제목 목록을 가져온다."""
+        windows = []
         user32 = ctypes.windll.user32
         enum_proc_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
@@ -396,22 +408,29 @@ class DocumentExtractorV3:
                 user32.GetWindowTextW(hwnd, buffer, length + 1)
                 title = buffer.value.strip()
                 if title:
-                    titles.append(title)
+                    windows.append((int(hwnd), title))
             except Exception:
                 pass
             return True
 
         user32.EnumWindows(enum_proc_type(enum_proc), 0)
-        return titles
+        return windows
+
+    def _get_visible_window_titles(self):
+        """현재 보이는 최상위 창 제목 목록을 가져온다."""
+        return [title for _, title in self._get_visible_windows()]
+
+    def _list_hwp_windows(self):
+        """한글 COM이 ROT에 없을 때 새 인스턴스를 만들지 않고 창 핸들만 감지한다."""
+        return [
+            (hwnd, title)
+            for hwnd, title in self._get_visible_windows()
+            if self._is_hwp_window_title(title)
+        ]
 
     def _list_hwp_window_titles(self):
         """한글 COM이 ROT에 없을 때 새 인스턴스를 만들지 않고 창 제목만 감지한다."""
-        hwp_titles = []
-        for title in self._get_visible_window_titles():
-            normalized = title.strip()
-            if normalized.endswith(" - 한글") or " - 한글 " in normalized:
-                hwp_titles.append(normalized)
-        return hwp_titles
+        return [title for _, title in self._list_hwp_windows()]
 
     def _get_window_class_name(self, hwnd):
         try:
@@ -438,6 +457,168 @@ class DocumentExtractorV3:
 
         title = self._get_window_title(hwnd).strip().lower()
         return title.endswith(" - notepad") or title.endswith(" - 메모장")
+
+    def _unpack_hwp_item(self, item):
+        if not item:
+            return "", "", 1, 0
+        name = item[0] if len(item) > 0 else ""
+        path = item[1] if len(item) > 1 else ""
+        hwp_index = item[2] if len(item) > 2 else 1
+        hwnd = item[3] if len(item) > 3 else 0
+        return name, path, hwp_index, hwnd
+
+    def _find_hwp_window_for_item(self, item):
+        name, _path, _hwp_index, hwnd = self._unpack_hwp_item(item)
+        user32 = ctypes.windll.user32
+        if hwnd and user32.IsWindow(hwnd):
+            return hwnd
+
+        for candidate_hwnd, title in self._list_hwp_windows():
+            if not name or name == title or name in title or title in name:
+                return candidate_hwnd
+        return 0
+
+    def _set_clipboard_text(self, text):
+        try:
+            import win32clipboard
+        except Exception as import_error:
+            raise Exception(f"클립보드 접근에 필요한 pywin32 모듈을 불러오지 못했습니다: {import_error}")
+
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+        finally:
+            win32clipboard.CloseClipboard()
+
+    def _send_vk(self, vk_code, delay=0.08):
+        user32 = ctypes.windll.user32
+        KEYEVENTF_KEYUP = 0x0002
+        user32.keybd_event(vk_code, 0, 0, 0)
+        time.sleep(delay)
+        user32.keybd_event(vk_code, 0, KEYEVENTF_KEYUP, 0)
+        time.sleep(delay)
+
+    def _send_hotkey(self, *vk_codes):
+        user32 = ctypes.windll.user32
+        KEYEVENTF_KEYUP = 0x0002
+        for vk_code in vk_codes:
+            user32.keybd_event(vk_code, 0, 0, 0)
+            time.sleep(0.03)
+        for vk_code in reversed(vk_codes):
+            user32.keybd_event(vk_code, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+        time.sleep(0.08)
+
+    def _activate_window(self, hwnd):
+        user32 = ctypes.windll.user32
+        SW_RESTORE = 9
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        user32.SetForegroundWindow(hwnd)
+        try:
+            title = self._get_window_title(hwnd)
+            if title and HAS_WIN32COM:
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shell.AppActivate(title)
+        except Exception:
+            pass
+        time.sleep(0.4)
+
+    def _wait_for_save_dialog(self, owner_hwnd, timeout=2.5):
+        user32 = ctypes.windll.user32
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            candidates = [user32.GetForegroundWindow()]
+            candidates.extend(hwnd for hwnd, _title in self._get_visible_windows())
+            for hwnd in candidates:
+                if not hwnd or hwnd == owner_hwnd:
+                    continue
+                title = self._get_window_title(hwnd)
+                class_name = self._get_window_class_name(hwnd)
+                title_lower = title.lower()
+                if (
+                    class_name == "#32770"
+                    or "저장" in title
+                    or "다른 이름" in title
+                    or "save" in title_lower
+                ):
+                    return hwnd
+            time.sleep(0.1)
+        return 0
+
+    def _submit_save_dialog(self, dialog_hwnd, save_path):
+        user32 = ctypes.windll.user32
+        user32.SetForegroundWindow(dialog_hwnd)
+        time.sleep(0.2)
+        self._set_clipboard_text(save_path)
+        self._send_hotkey(0x11, 0x41)  # Ctrl+A
+        self._send_hotkey(0x11, 0x56)  # Ctrl+V
+        self._send_vk(0x0D)  # Enter
+
+    def _try_hwp_save_shortcut(self, hwnd, save_path, shortcut_name, shortcut_fn):
+        self._activate_window(hwnd)
+        shortcut_fn()
+        dialog_hwnd = self._wait_for_save_dialog(hwnd)
+        if not dialog_hwnd:
+            self.logger.log(f"한글 UI 저장 단축키 {shortcut_name}: 저장 대화상자 감지 실패")
+            return False
+
+        self.logger.log(f"한글 UI 저장 단축키 {shortcut_name}: 저장 대화상자 감지 hwnd={dialog_hwnd}")
+        self._submit_save_dialog(dialog_hwnd, save_path)
+        return True
+
+    def _save_hwp_via_window(self, hwnd, save_path, save_format):
+        """COM 연결이 막힌 한글 창을 UI 단축키로 다른 이름 저장한다."""
+        user32 = ctypes.windll.user32
+        if not hwnd or not user32.IsWindow(hwnd):
+            raise Exception("한글 창 핸들을 찾을 수 없어 UI 저장을 진행할 수 없습니다.")
+
+        target_ext = ".hwpx" if save_format == "hwpx" else ".hwp"
+        if os.path.splitext(save_path)[1].lower() != target_ext:
+            raise Exception(f"한글 저장 형식과 파일 확장자가 다릅니다. {target_ext} 파일로 저장해 주세요.")
+
+        target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+        backup_path = None
+        if os.path.exists(save_path):
+            backup_path = self._add_filename_suffix(
+                save_path,
+                f".docextract_backup_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+            )
+            os.replace(save_path, backup_path)
+
+        self.logger.log(f"한글 COM 대체 UI 저장 시도: hwnd={hwnd}, path={save_path}")
+
+        try:
+            shortcuts = [
+                ("F12", lambda: self._send_vk(0x7B)),
+                ("Alt+V", lambda: self._send_hotkey(0x12, 0x56)),
+                ("Ctrl+Shift+S", lambda: self._send_hotkey(0x11, 0x10, 0x53)),
+            ]
+            for shortcut_name, shortcut_fn in shortcuts:
+                if not self._try_hwp_save_shortcut(hwnd, save_path, shortcut_name, shortcut_fn):
+                    continue
+
+                deadline = time.time() + 20
+                while time.time() < deadline:
+                    if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+                        if backup_path and os.path.exists(backup_path):
+                            os.remove(backup_path)
+                        return
+                    time.sleep(0.2)
+                self.logger.log(f"한글 UI 저장 단축키 {shortcut_name}: 파일 생성 대기 시간 초과")
+                self._send_vk(0x1B)  # Esc
+                time.sleep(0.3)
+
+            self._send_vk(0x1B)  # Esc
+            raise Exception(
+                "한글 UI 저장으로 결과 파일이 생성되지 않았습니다.\n"
+                "한글 창이 앞에 떠 있는지, 저장 대화상자가 보안 프로그램에 의해 막히지 않았는지 확인해 주세요."
+            )
+        except Exception:
+            if backup_path and os.path.exists(backup_path) and not os.path.exists(save_path):
+                os.replace(backup_path, save_path)
+            raise
 
     def _find_child_window_by_classes(self, parent_hwnd, class_names):
         """직계 자식뿐 아니라 중첩된 Win32 텍스트 컨트롤까지 찾는다."""
@@ -2873,9 +3054,13 @@ class DocumentExtractorV3:
                 self.logger.log(
                     f"한글 활성 COM 연결 실패, 창 제목 감지로 대체: {str(connect_err)[:80]}"
                 )
-                hwp_titles = self._list_hwp_window_titles()
-                if hwp_titles:
-                    self.hwp_list = [(title, "", idx + 1) for idx, title in enumerate(hwp_titles)]
+                hwp_windows = self._list_hwp_windows()
+                if hwp_windows:
+                    self.hwp_list = [
+                        (title, "", idx + 1, hwnd)
+                        for idx, (hwnd, title) in enumerate(hwp_windows)
+                    ]
+                    hwp_titles = [title for _, title in hwp_windows]
                     self.logger.log(f"한글 창 감지: {len(hwp_titles)}개")
 
                     def update_window_combo():
@@ -2903,7 +3088,7 @@ class DocumentExtractorV3:
                 path = hwp.Path
                 if path:
                     name = os.path.basename(path)
-                    self.hwp_list = [(name, path, 1)]
+                    self.hwp_list = [(name, path, 1, 0)]
                     self.logger.log(f"한글 문서 감지: {name}")
 
                     def update_combo():
@@ -2916,7 +3101,7 @@ class DocumentExtractorV3:
                     self.root.after(0, update_combo)
                 else:
                     # 제목 없는 문서
-                    self.hwp_list = [("제목 없음", "", 1)]
+                    self.hwp_list = [("제목 없음", "", 1, 0)]
                     self.logger.log("한글 제목 없는 문서 감지")
 
                     def update_combo():
@@ -2959,10 +3144,10 @@ class DocumentExtractorV3:
         """한글 콤보박스 선택 이벤트"""
         selected_idx = self.hwp_combo.current()
         if selected_idx >= 0 and selected_idx < len(self.hwp_list):
-            name, path, hwp_index = self.hwp_list[selected_idx]
+            name, path, hwp_index, hwnd = self._unpack_hwp_item(self.hwp_list[selected_idx])
             self.selected_hwp_index.set(hwp_index)
             self.hwp_doc_name.set(name)
-            self.logger.log(f"한글 선택: {name} (인덱스 {hwp_index})")
+            self.logger.log(f"한글 선택: {name} (인덱스 {hwp_index}, hwnd={hwnd})")
 
     def start_hwp_extraction(self):
         """한글 추출 시작"""
@@ -2979,14 +3164,19 @@ class DocumentExtractorV3:
             messagebox.showwarning("경고", "열린 한글 문서가 없습니다.")
             return
 
+        selected_idx = self.hwp_combo.current()
+        if selected_idx < 0 or selected_idx >= len(self.hwp_list):
+            selected_idx = 0
+        hwp_item = self.hwp_list[selected_idx]
+
         self.hwp_extract_button.config(state=tk.DISABLED)
         self.progress_var.set(0)
 
-        thread = threading.Thread(target=self._extract_hwp, args=(save_path, save_format))
+        thread = threading.Thread(target=self._extract_hwp, args=(save_path, save_format, hwp_item))
         thread.daemon = True
         thread.start()
 
-    def _extract_hwp(self, save_path, save_format):
+    def _extract_hwp(self, save_path, save_format, hwp_item=None):
         """한글 추출 (백그라운드)"""
         self.logger.log("=== 한글 추출 프로세스 시작 ===")
         extract_start = time.perf_counter()
@@ -2995,7 +3185,26 @@ class DocumentExtractorV3:
         try:
             self.root.after(0, lambda: self.status_text.set("원본 한글 연결 중..."))
 
-            hwp, _ = self._get_hwp_app_for_extraction()
+            try:
+                hwp, _ = self._get_hwp_app_for_extraction()
+            except Exception as connect_error:
+                hwnd = self._find_hwp_window_for_item(hwp_item)
+                if not hwnd:
+                    raise
+
+                self.logger.log(f"한글 COM 연결 실패, UI 저장 대체 경로로 전환: {str(connect_error)[:120]}")
+                self.root.after(0, lambda: self.status_text.set("한글 창에서 직접 저장 중..."))
+                self.root.after(0, lambda: self.progress_var.set(30))
+                self._save_hwp_via_window(hwnd, save_path, save_format)
+
+                self.root.after(0, lambda: self.progress_var.set(100))
+                self.root.after(0, lambda: self.status_text.set("한글 추출 완료!"))
+                self.root.after(0, lambda: messagebox.showinfo("완료",
+                    f"한글 추출 완료 (창 저장 방식)!\n{save_path}"))
+                self.logger.log(f"한글 UI 저장 완료: {save_path}")
+                self._log_elapsed("한글 전체 추출 시간", extract_start)
+                return
+
             try:
                 current_path = hwp.Path
             except Exception:
