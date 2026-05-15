@@ -219,6 +219,13 @@
 - 2026-05-15 로컬 `Start-Process` 실행 확인 -> `DocumentExtractor_v3` 프로세스 시작 성공 후 수동 종료
 - 2026-05-15 결론: 현재 작업 PC에서는 차단 재현 안 됨. 다른 회사 PC에서 차단된다면 서명되지 않은 PyInstaller 단일 EXE 정책 차단 가능성이 높음
 
+- 2026-05-15 사용자 피드백 반영: 한글 결과가 같은 회사 보안 프로그램에서만 열리면 변환 목적을 달성하지 못하므로 SCDS 결과를 성공으로 처리하지 않도록 변경
+- 2026-05-15 HWP COM 저장 및 UI 저장 fallback에서 결과 헤더가 `SCDS`이면 결과 파일을 제거하고 명시적 실패 메시지 표시
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `57D52337D818A82B081D4E6068587C57194D29E7746A662728376999CF77DA8C`
+
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.

@@ -775,7 +775,12 @@ class DocumentExtractorV3:
                     if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
                         header = self._read_header_hex(save_path, 8)
                         if header.startswith("53 43 44 53"):
-                            self.logger.log("한글 UI 저장 결과: 회사 보안/DRM 컨테이너(SCDS)로 저장됨")
+                            self.logger.log("한글 UI 저장 결과가 회사 보안/DRM 컨테이너(SCDS)라서 실패 처리합니다")
+                            try:
+                                os.remove(save_path)
+                            except Exception:
+                                pass
+                            raise Exception(self._hwp_drm_container_message(save_path))
                         if backup_path and os.path.exists(backup_path):
                             os.remove(backup_path)
                         return
@@ -853,6 +858,14 @@ class DocumentExtractorV3:
                 return " ".join(f"{b:02X}" for b in f.read(size))
         except Exception:
             return "읽기 실패"
+
+    def _hwp_drm_container_message(self, save_path):
+        return (
+            "한글 저장 결과가 회사 보안/DRM 컨테이너(SCDS)입니다.\n"
+            "이 파일은 일반 HWP로 변환된 것이 아니어서 변환 실패로 처리했습니다.\n\n"
+            "해결하려면 보안 프로그램의 공식 반출/해제 권한으로 원본을 먼저 일반 HWP/HWPX로 저장해야 합니다.\n"
+            f"대상 경로: {save_path}"
+        )
 
     def _add_filename_suffix(self, path, suffix):
         directory = os.path.dirname(path)
@@ -1271,6 +1284,14 @@ class DocumentExtractorV3:
 
         for _ in range(20):
             if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+                header = self._read_header_hex(save_path, 8)
+                if header.startswith("53 43 44 53"):
+                    self.logger.log("한글 저장 결과가 회사 보안/DRM 컨테이너(SCDS)라서 실패 처리합니다")
+                    try:
+                        os.remove(save_path)
+                    except Exception:
+                        pass
+                    raise Exception(self._hwp_drm_container_message(save_path))
                 return
             time.sleep(0.1)
         raise Exception("한글 저장 후 결과 파일이 생성되지 않았거나 비어 있습니다.")
