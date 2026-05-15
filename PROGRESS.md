@@ -3,7 +3,7 @@
 ## Dashboard
 - Progress: 100%
 - Risk: 낮음
-- Last updated: 2026-05-12
+- Last updated: 2026-05-15
 
 ## Today Goal
 - v3 추출기의 PPT/Excel/Word/HWP/메모장 지원 상태 점검
@@ -34,6 +34,10 @@
 - 회사 보안 PC 대응으로 단일 EXE 빌드의 UPX 압축을 비활성화했다.
 - 회사 보안 솔루션이 단일 EXE 자가해제 방식을 차단할 때를 대비해 폴더형 배포본(`DocumentExtractor_v3_folder`)을 추가했다.
 - GUI 생성 전 예외가 발생하면 `DocExtractor_Startup_Error_YYYYMMDD_HHMMSS.txt`를 바탕화면/문서/임시폴더 순서로 남긴다.
+- Word 기본 원본 복사 모드는 이미지/표/머리글/도형 보존을 위해 원본 파일 복사 실패 시 텍스트 재구성으로 자동 하락하지 않는다.
+- Word 텍스트 재구성 모드는 `.docx` 저장만 허용한다. `.doc`, `.rtf`, `.docm`은 원본 복사 경로에서만 처리한다.
+- 메모장 감지는 `Notepad` 클래스 외에 `- Notepad`/`- 메모장` 제목 창도 잡고, 중첩된 `Edit`/`RichEditD2DPT`/`RICHEDIT50W` 컨트롤을 탐색한다.
+- 메모장 DOCX/TXT 저장 결과 검증을 추가했다.
 
 ## Verification
 - `py -m py_compile ppt_extractor_v3.py document_extractor.py pdf_printer.py ppt_extractor.py ppt_extractor_v2.py` -> 성공
@@ -130,24 +134,35 @@
 - 2026-05-12 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3_folder.spec` -> 성공
 - 2026-05-12 단일 EXE 배포본 SHA256 -> `A5DA1358FE1364185435D0DA90DDC5DE91E3AAAD4A982F7B51B809C7509EC2F3`
 - 2026-05-12 폴더형 배포본 EXE SHA256 -> `F93E4D00443C54EB43CEC1300E7DD2DEB55032228E8BBBD7867B48604A056FC0`
+- 2026-05-15 Word/HWP/메모장 재검토: Word 저품질 자동 폴백 차단, 메모장 감지/저장 검증 보강
+- 2026-05-15 `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- 2026-05-15 `git diff --check` -> 성공
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 8, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3_folder.spec` -> 성공
+- 2026-05-15 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt`로 복사 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `E3F3171B85234E0D52B80C270FAAAE3B992572498F3C92340DE68049EDB117C0`
+- 2026-05-15 폴더형 배포본 EXE SHA256 -> `4D8E732CC9EBD66D017F46AE803C30BA0EC40998AC0AA2B33243549CB366B821`
 
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
-- Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 저장 안 된 문서나 확장자 변환은 기존 재구성 경로를 사용한다.
+- Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.
 - Excel 재구성 모드의 도형/이미지 위치는 TopLeftCell 기준 보존이며, 셀 내부 픽셀 오프셋은 근사치다.
 - PPT `_화면그대로.pptx` 추가본은 시각 보존용이라 각 슬라이드가 이미지로 들어간다. 현재 기본 UI에서는 텍스트 이미지화를 막기 위해 직접 선택 경로를 제거했다.
 - PPT 원본 복사 실패 후 클립보드 슬라이드 패키지가 제공되면 편집 가능한 원본 구조 복원을 우선한다. 이 패키지가 DRM/보안 정책으로 제공되지 않으면 슬라이드 복제까지만 시도하고, 실패 시 이미지 산출물 없이 오류 처리한다.
 - PowerPoint 경고창이 계속 뜨면 기존 실행 중인 EXE/PowerPoint를 닫고 최신 EXE로 재실행해야 한다.
 - `SCDSA004`처럼 이미 DRM 컨테이너로 저장된 파일은 그 파일만으로 정상 PPTX 복구가 불가능하다. 원본 문서를 PowerPoint에 연 상태에서 새 EXE로 다시 추출해야 한다.
-- Windows 11 새 메모장은 자동 검증에서 SKIP됨. 현재 Win32 Edit/RichEdit 방식으로 제한적이라 UI Automation 검토 여지가 있다.
+- Windows 11 새 메모장은 자동 검증에서 SKIP될 수 있다. 현재 Win32 Edit/RichEdit 계열 컨트롤 탐색 방식으로 제한적이라 UI Automation 검토 여지가 있다.
 - `ppt_extractor_v3.py`에는 진단 없이 삼키는 `except:`/`except: pass`가 일부 남아 있다.
 - 회사 보안 PC에서 시작 오류 로그도 생성되지 않으면 Python 코드 진입 전 보안 솔루션이 실행 파일을 차단한 것으로 보고 격리/차단 로그 또는 허용 정책 확인이 필요하다.
 - 회사 보안 PC에서는 먼저 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_folder\DocumentExtractor_v3.exe`를 실행한다. 폴더 내부 파일을 분리하면 실행이 깨질 수 있다.
+- HWP는 실제 사용자 문서 기준 다중 창/다중 문서 선택 검증이 아직 필요하다. COM 연결이 특정 창을 정확히 지정하지 못하는 환경에서는 사용자가 대상 문서를 활성화한 뒤 추출해야 한다.
+- Windows 11 새 메모장이 WinUI 전용 텍스트 컨트롤만 노출하면 Win32 방식으로 자동 추출할 수 없다. 현재 검증 환경에서도 Notepad 자동 검증은 SKIP 상태다.
 
 ## Next
-1. 회사 보안 PC에서 폴더형 배포본 실행 여부와 `DocExtractor_Startup_Error_*.txt` 생성 여부 확인
+1. 실제 사용자 문서로 HWP/Word/메모장 탭 수동 확인
 2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토
-3. 실제 사용자 문서로 HWP/Word/메모장 탭 수동 확인
+3. 회사 보안 PC에서 폴더형 배포본 실행 여부와 `DocExtractor_Startup_Error_*.txt` 생성 여부 확인
 
 ---
 ## Archive Rule

@@ -412,6 +412,57 @@ class DocumentExtractorV3:
                 hwp_titles.append(normalized)
         return hwp_titles
 
+    def _get_window_class_name(self, hwnd):
+        try:
+            buffer = ctypes.create_unicode_buffer(256)
+            ctypes.windll.user32.GetClassNameW(hwnd, buffer, 256)
+            return buffer.value
+        except Exception:
+            return ""
+
+    def _get_window_title(self, hwnd):
+        try:
+            user32 = ctypes.windll.user32
+            title_length = user32.GetWindowTextLengthW(hwnd)
+            title = ctypes.create_unicode_buffer(title_length + 1)
+            user32.GetWindowTextW(hwnd, title, title_length + 1)
+            return title.value
+        except Exception:
+            return ""
+
+    def _is_notepad_window(self, hwnd):
+        class_name = self._get_window_class_name(hwnd)
+        if class_name == "Notepad":
+            return True
+
+        title = self._get_window_title(hwnd).strip().lower()
+        return title.endswith(" - notepad") or title.endswith(" - 메모장")
+
+    def _find_child_window_by_classes(self, parent_hwnd, class_names):
+        """직계 자식뿐 아니라 중첩된 Win32 텍스트 컨트롤까지 찾는다."""
+        user32 = ctypes.windll.user32
+        wanted = set(class_names)
+        queue = [parent_hwnd]
+        seen = set()
+
+        while queue:
+            current = queue.pop(0)
+            if current in seen:
+                continue
+            seen.add(current)
+
+            child = 0
+            while True:
+                child = user32.FindWindowExW(current, child, None, None)
+                if not child:
+                    break
+                class_name = self._get_window_class_name(child)
+                if class_name in wanted:
+                    return child
+                queue.append(child)
+
+        return 0
+
     def _log_elapsed(self, label, start_time):
         elapsed = time.perf_counter() - start_time
         self.logger.log(f"{label}: {elapsed:.2f}초")
@@ -3214,10 +3265,27 @@ class DocumentExtractorV3:
                     self._log_elapsed("Word 전체 추출 시간", extract_start)
                     return
                 except Exception as e:
-                    self.logger.log(f"Word 원본 파일 복사 실패, 텍스트 재구성으로 폴백: {str(e)[:80]}")
+                    self.logger.log(f"Word 원본 파일 복사 실패: {str(e)[:120]}")
+                    raise Exception(
+                        "Word 원본 파일 복사에 실패해 중단했습니다.\n"
+                        "이미지, 표, 머리글/바닥글, 도형을 보존하려면 원본 파일 복사가 필요합니다.\n\n"
+                        "해결 방법:\n"
+                        "1. Word에서 문서를 먼저 저장하세요.\n"
+                        "2. 원본과 같은 확장자로 저장 경로를 선택하세요.\n"
+                        "3. 텍스트만 재구성해도 되는 경우에만 '원본 파일 복사 우선' 체크를 해제하고 .docx로 저장하세요.\n\n"
+                        f"원인: {str(e)}"
+                    )
 
             if not HAS_DOCX:
                 raise Exception("python-docx 패키지가 필요합니다. pip install python-docx")
+
+            target_ext = os.path.splitext(save_path)[1].lower()
+            if target_ext != ".docx":
+                raise Exception(
+                    "Word 텍스트 재구성 방식은 .docx 저장만 지원합니다.\n"
+                    "원본 그대로 복사하려면 원본과 같은 확장자를 선택하고, "
+                    "텍스트 재구성을 사용할 때는 저장 경로를 .docx로 지정하세요."
+                )
 
             # 방법 2: python-docx로 직접 재구성
             self.root.after(0, lambda: self.status_text.set("텍스트 추출 방식으로 진행 중..."))
@@ -3340,6 +3408,8 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.status_text.set("파일 저장 중..."))
             self.root.after(0, lambda: self.progress_var.set(95))
 
+            target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+            os.makedirs(target_dir, exist_ok=True)
             new_doc.save(save_path)
             self._validate_office_openxml(save_path, "Word 재구성")
             self.logger.log(f"저장 완료: {save_path}")
@@ -3467,17 +3537,13 @@ class DocumentExtractorV3:
             # EnumWindows 콜백
             def enum_callback(hwnd, lparam):
                 if user32.IsWindowVisible(hwnd):
-                    # 클래스명 확인
-                    class_name = ctypes.create_unicode_buffer(256)
-                    user32.GetClassNameW(hwnd, class_name, 256)
-
-                    if class_name.value == "Notepad":
-                        # 창 제목 가져오기
-                        title_length = user32.GetWindowTextLengthW(hwnd)
-                        title = ctypes.create_unicode_buffer(title_length + 1)
-                        user32.GetWindowTextW(hwnd, title, title_length + 1)
-                        notepad_windows.append((hwnd, title.value))
-                        self.logger.log(f"  메모장 발견: hwnd={hwnd}, 제목='{title.value}'")
+                    if self._is_notepad_window(hwnd):
+                        title = self._get_window_title(hwnd)
+                        class_name = self._get_window_class_name(hwnd)
+                        notepad_windows.append((hwnd, title))
+                        self.logger.log(
+                            f"  메모장 발견: hwnd={hwnd}, class='{class_name}', 제목='{title}'"
+                        )
                 return True
 
             WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
@@ -3568,11 +3634,11 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.status_text.set("메모장 텍스트 읽는 중..."))
             self.root.after(0, lambda: self.progress_var.set(20))
 
-            # 메모장 내부 Edit 컨트롤 찾기
-            edit_hwnd = user32.FindWindowExW(hwnd, 0, "Edit", None)
-            if not edit_hwnd:
-                # Windows 11 구 스타일(레거시) 메모장에서 보일 수 있는 대체 클래스
-                edit_hwnd = user32.FindWindowExW(hwnd, 0, "RichEditD2DPT", None)
+            # 메모장 내부 텍스트 컨트롤 찾기
+            edit_hwnd = self._find_child_window_by_classes(
+                hwnd,
+                ["Edit", "RichEditD2DPT", "RICHEDIT50W"],
+            )
             if not edit_hwnd:
                 # Windows 11 새 메모장(UWP/WinUI)은 이 방식으로 접근할 수 없음 — 사용자 친화 안내
                 raise Exception(
@@ -3620,17 +3686,25 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.progress_var.set(70))
 
             # 저장
-            if save_format == "docx" and HAS_DOCX:
+            target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+            os.makedirs(target_dir, exist_ok=True)
+
+            if save_format == "docx":
+                if not HAS_DOCX:
+                    raise Exception("DOCX 저장에는 python-docx 패키지가 필요합니다.")
                 self.root.after(0, lambda: self.status_text.set("DOCX 파일로 저장 중..."))
                 new_doc = DocxDocument()
                 for line in text.split('\n'):
                     line = line.rstrip('\r')
                     new_doc.add_paragraph(line)
                 new_doc.save(save_path)
+                self._validate_office_openxml(save_path, "메모장 DOCX")
             else:
                 self.root.after(0, lambda: self.status_text.set("TXT 파일로 저장 중..."))
                 with open(save_path, 'w', encoding='utf-8') as f:
                     f.write(text)
+                if not os.path.exists(save_path) or os.path.getsize(save_path) <= 0:
+                    raise Exception("메모장 TXT 저장 결과 파일이 없거나 비어 있습니다.")
 
             self.logger.log(f"저장 완료: {save_path}")
             self._log_elapsed("메모장 전체 추출 시간", extract_start)

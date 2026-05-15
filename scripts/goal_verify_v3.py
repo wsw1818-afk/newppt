@@ -338,6 +338,8 @@ def check_excel_native_copy(out_dir: Path) -> str:
 
 def check_word_safe_copy(out_dir: Path) -> str:
     pythoncom, _pywintypes, win32 = import_com()
+    from ppt_extractor_v3 import DocumentExtractorV3
+
     source = out_dir / "sample_word_source.docx"
     copied = out_dir / "sample_word_copy.docx"
     image = out_dir / "sample_word_image.png"
@@ -356,7 +358,8 @@ def check_word_safe_copy(out_dir: Path) -> str:
         doc.SaveAs2(str(source), FileFormat=16)  # wdFormatXMLDocument
         source_full_name = str(doc.FullName)
         source_saved = bool(doc.Saved)
-        shutil.copy2(source, copied)
+        extractor = object.__new__(DocumentExtractorV3)
+        extractor._copy_word_document_file(doc, str(copied))
         after_full_name = str(doc.FullName)
         after_saved = bool(doc.Saved)
     finally:
@@ -491,6 +494,37 @@ def find_window_for_pid(pid: int, class_name: str | None = None) -> int | None:
     return found[0] if found else None
 
 
+def window_class_name(hwnd: int) -> str:
+    user32 = ctypes.windll.user32
+    buffer = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buffer, 256)
+    return buffer.value
+
+
+def find_child_window_by_classes(parent_hwnd: int, class_names: list[str]) -> int | None:
+    user32 = ctypes.windll.user32
+    wanted = set(class_names)
+    queue = [parent_hwnd]
+    seen: set[int] = set()
+
+    while queue:
+        current = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+
+        child = 0
+        while True:
+            child = user32.FindWindowExW(current, child, None, None)
+            if not child:
+                break
+            if window_class_name(child) in wanted:
+                return int(child)
+            queue.append(int(child))
+
+    return None
+
+
 def check_notepad_legacy_read(out_dir: Path) -> str:
     user32 = ctypes.windll.user32
     sample = out_dir / "sample_notepad.txt"
@@ -506,7 +540,7 @@ def check_notepad_legacy_read(out_dir: Path) -> str:
     try:
         deadline = time.time() + 8
         while time.time() < deadline:
-            hwnd = find_window_for_pid(proc.pid, "Notepad")
+            hwnd = find_window_for_pid(proc.pid)
             if hwnd:
                 break
             time.sleep(0.2)
@@ -514,9 +548,7 @@ def check_notepad_legacy_read(out_dir: Path) -> str:
         if not hwnd:
             raise SkipTest("legacy Notepad top-level window not found")
 
-        edit_hwnd = user32.FindWindowExW(hwnd, 0, "Edit", None)
-        if not edit_hwnd:
-            edit_hwnd = user32.FindWindowExW(hwnd, 0, "RichEditD2DPT", None)
+        edit_hwnd = find_child_window_by_classes(hwnd, ["Edit", "RichEditD2DPT", "RICHEDIT50W"])
         if not edit_hwnd:
             raise SkipTest("Notepad does not expose legacy Edit/RichEdit control")
 
