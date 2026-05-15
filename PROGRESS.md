@@ -5,6 +5,13 @@
 - Risk: 낮음
 - Last updated: 2026-05-15
 
+## Latest Build
+- 2026-05-15 14:16 KST: rebuilt onefile and folder EXE with PyInstaller.
+- Onefile EXE: `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`
+- Folder EXE: `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_folder\DocumentExtractor_v3.exe`
+- Onefile SHA256: `D118893EA7CAC244B105EE90411E7B4397838A083D5D38FDD0F47682391133E0`
+- Folder SHA256: `2F852FBABDED65D7FB06D3BE8D58FDA288B240B0EAAB18AA862AE3DD11F5A569`
+
 ## Today Goal
 - v3 추출기의 PPT/Excel/Word/HWP/메모장 지원 상태 점검
 - 도형, 이미지, 서식, 원본 크기 보존 중심으로 변환 안정성 개선
