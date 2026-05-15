@@ -203,7 +203,7 @@ class DocumentExtractorV3:
 
         self.root = tk.Tk()
         self.root.title("문서 추출 도구 v3")
-        self.root.geometry("650x620")
+        self.root.geometry("860x580")
         self.root.resizable(False, False)
 
         # 상태 변수 (공통)
@@ -245,71 +245,170 @@ class DocumentExtractorV3:
         # 탭 변경 추적 (중복 감지 방지)
         self.last_tab_index = -1
         self.tab_detected = [False, False, False, False]  # PPT, Excel, Word, 메모장
+        self.current_doc_index = 0
+        self.nav_buttons = []
         self._hwp_detecting = False
 
         self.setup_ui()
 
         self.logger.log("DocumentExtractor v3 초기화 완료")
 
+    def _configure_styles(self):
+        """업무용 도구 화면에 맞춘 공통 ttk 스타일."""
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        style.configure("App.TFrame", background="#f3f5f7")
+        style.configure("Panel.TFrame", background="#ffffff")
+        style.configure("Footer.TFrame", background="#f3f5f7")
+        style.configure("Title.TLabel", background="#f3f5f7", foreground="#111827", font=("맑은 고딕", 16, "bold"))
+        style.configure("Subtitle.TLabel", background="#f3f5f7", foreground="#4b5563", font=("맑은 고딕", 9))
+        style.configure("Section.TLabelframe", background="#ffffff", bordercolor="#d1d5db", relief=tk.SOLID)
+        style.configure("Section.TLabelframe.Label", background="#ffffff", foreground="#111827", font=("맑은 고딕", 10, "bold"))
+        style.configure("Accent.TButton", font=("맑은 고딕", 11, "bold"))
+
     def setup_ui(self):
         """UI 구성"""
         self.logger.log("UI 구성 시작")
+        self._configure_styles()
 
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(self.root, padding=0, style="App.TFrame")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 제목
-        title_label = ttk.Label(main_frame, text="문서 추출 도구 v3",
-                                font=("맑은 고딕", 16, "bold"))
-        title_label.pack(pady=(0, 5))
+        header_frame = ttk.Frame(main_frame, padding=(18, 14, 18, 8), style="App.TFrame")
+        header_frame.pack(fill=tk.X)
 
-        # 설명
-        desc_label = ttk.Label(main_frame,
-                               text="권한 있는 열린 문서의 내용을 새 파일로 내보냅니다",
-                               font=("맑은 고딕", 9), justify=tk.CENTER)
-        desc_label.pack(pady=(0, 10))
+        ttk.Label(header_frame, text="문서 추출 도구 v3", style="Title.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            header_frame,
+            text="PPT, Excel, Word, 메모장을 감지하고 원본 구조를 우선 보존해 새 파일로 내보냅니다.",
+            style="Subtitle.TLabel",
+        ).pack(anchor=tk.W, pady=(2, 0))
 
-        # 탭 노트북
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        body_frame = ttk.Frame(main_frame, padding=(12, 0, 12, 10), style="App.TFrame")
+        body_frame.pack(fill=tk.BOTH, expand=True)
+
+        sidebar = tk.Frame(body_frame, width=172, bg="#111827", bd=0, highlightthickness=0)
+        sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 12))
+        sidebar.pack_propagate(False)
+
+        tk.Label(
+            sidebar,
+            text="문서 종류",
+            bg="#111827",
+            fg="#9ca3af",
+            font=("맑은 고딕", 9, "bold"),
+            anchor=tk.W,
+        ).pack(fill=tk.X, padx=14, pady=(14, 8))
+
+        self.doc_views = [
+            ("PowerPoint", "PPT", "슬라이드/도형 보존", self.detect_open_ppt),
+            ("Excel", "XLS", "시트/도형 보존", self.detect_open_excel),
+            ("Word", "DOC", "문서 구조 보존", self.detect_open_word),
+            ("메모장", "TXT", "텍스트 추출", self.detect_open_notepad),
+        ]
+        self.view_title_text = tk.StringVar(value=self.doc_views[0][0])
+        self.view_summary_text = tk.StringVar(value=self.doc_views[0][2])
+
+        for index, (title, badge, summary, _detect_fn) in enumerate(self.doc_views):
+            button = tk.Button(
+                sidebar,
+                text=f"{title}\n{badge} · {summary}",
+                command=lambda i=index: self._select_document_view(i),
+                anchor=tk.W,
+                justify=tk.LEFT,
+                relief=tk.FLAT,
+                bd=0,
+                padx=12,
+                pady=9,
+                bg="#1f2937",
+                fg="#e5e7eb",
+                activebackground="#2563eb",
+                activeforeground="#ffffff",
+                font=("맑은 고딕", 9),
+            )
+            button.pack(fill=tk.X, padx=10, pady=4)
+            self.nav_buttons.append(button)
+
+        tk.Label(
+            sidebar,
+            text="한글/HWP는 회사 DRM 환경에서 일반 파일 변환이 불가해 제외됨",
+            bg="#111827",
+            fg="#9ca3af",
+            font=("맑은 고딕", 8),
+            justify=tk.LEFT,
+            wraplength=138,
+            anchor=tk.W,
+        ).pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(8, 14))
+
+        content_shell = ttk.Frame(body_frame, padding=(12, 12), style="Panel.TFrame")
+        content_shell.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        title_row = ttk.Frame(content_shell, style="Panel.TFrame")
+        title_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(
+            title_row,
+            textvariable=self.view_title_text,
+            background="#ffffff",
+            foreground="#111827",
+            font=("맑은 고딕", 14, "bold"),
+        ).pack(side=tk.LEFT)
+        ttk.Label(
+            title_row,
+            textvariable=self.view_summary_text,
+            background="#ffffff",
+            foreground="#6b7280",
+            font=("맑은 고딕", 9),
+        ).pack(side=tk.LEFT, padx=(10, 0), pady=(3, 0))
+
+        self.content_area = ttk.Frame(content_shell, style="Panel.TFrame")
+        self.content_area.pack(fill=tk.BOTH, expand=True)
+        self.content_area.grid_rowconfigure(0, weight=1)
+        self.content_area.grid_columnconfigure(0, weight=1)
 
         # PPT 탭
-        self.ppt_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.ppt_tab, text="  PowerPoint  ")
+        self.ppt_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
+        self.ppt_tab.grid(row=0, column=0, sticky="nsew")
         self._setup_ppt_tab()
 
         # Excel 탭
-        self.excel_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.excel_tab, text="  Excel  ")
+        self.excel_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
+        self.excel_tab.grid(row=0, column=0, sticky="nsew")
         self._setup_excel_tab()
 
         # Word 탭
-        self.word_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.word_tab, text="  Word  ")
+        self.word_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
+        self.word_tab.grid(row=0, column=0, sticky="nsew")
         self._setup_word_tab()
 
         # 메모장 탭
-        self.notepad_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.notepad_tab, text="  메모장  ")
+        self.notepad_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
+        self.notepad_tab.grid(row=0, column=0, sticky="nsew")
         self._setup_notepad_tab()
 
+        self.content_frames = [self.ppt_tab, self.excel_tab, self.word_tab, self.notepad_tab]
+        self._select_document_view(0, detect=False)
+
+        footer_frame = ttk.Frame(main_frame, padding=(12, 0, 12, 12), style="Footer.TFrame")
+        footer_frame.pack(fill=tk.X)
+
         # 진행바 (공통)
-        self.progress = ttk.Progressbar(main_frame, variable=self.progress_var,
+        self.progress = ttk.Progressbar(footer_frame, variable=self.progress_var,
                                          maximum=100, length=550)
-        self.progress.pack(pady=(0, 5))
+        self.progress.pack(fill=tk.X, pady=(0, 6))
 
         # 상태 표시 (공통)
-        status_frame = ttk.Frame(main_frame)
+        status_frame = ttk.Frame(footer_frame, style="Footer.TFrame")
         status_frame.pack(fill=tk.X)
         ttk.Label(status_frame, text="상태:").pack(side=tk.LEFT)
         ttk.Label(status_frame, textvariable=self.status_text,
                   font=("맑은 고딕", 9)).pack(side=tk.LEFT, padx=(5, 0))
 
-        # 스타일 설정
-        style = ttk.Style()
-        style.configure("Accent.TButton", font=("맑은 고딕", 11, "bold"))
-
         self.logger.log("UI 구성 완료")
+        self.root.after(120, self._schedule_detect)
 
     def _connect_com_app(self, prog_id, display_name, allow_dispatch=True, use_get_active=True):
         """Office/HWP COM 애플리케이션 연결을 공통 처리한다."""
@@ -1471,9 +1570,6 @@ class DocumentExtractorV3:
                                               style="Accent.TButton")
         self.ppt_extract_button.pack(pady=10)
 
-        # 탭 활성화 시 자동 감지 (초기 감지도 이 이벤트로 처리됨)
-        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-
     def _setup_excel_tab(self):
         """Excel 탭 설정"""
         tab = self.excel_tab
@@ -1575,19 +1671,42 @@ class DocumentExtractorV3:
         self.hwp_extract_button.pack(pady=10)
 
     def _on_tab_changed(self, event):
-        """탭 변경 시 해당 문서 감지 (중복 감지 방지, debounce 적용)"""
-        # 기존 예약된 감지가 있으면 취소
+        """이전 Notebook 이벤트 호환용 감지 예약."""
+        self._schedule_detect()
+
+    def _select_document_view(self, index, detect=True):
+        """좌측 사이드바 선택에 맞춰 작업 패널을 전환한다."""
+        self.current_doc_index = index
+        title, _badge, summary, _detect_fn = self.doc_views[index]
+        self.view_title_text.set(title)
+        self.view_summary_text.set(summary)
+
+        for frame_index, frame in enumerate(getattr(self, "content_frames", [])):
+            if frame_index == index:
+                frame.tkraise()
+
+        for button_index, button in enumerate(self.nav_buttons):
+            if button_index == index:
+                button.configure(bg="#2563eb", fg="#ffffff", activebackground="#2563eb")
+            else:
+                button.configure(bg="#1f2937", fg="#e5e7eb", activebackground="#2563eb")
+
+        if detect:
+            self.status_text.set(f"{title} 감지 준비")
+            self._schedule_detect()
+
+    def _schedule_detect(self):
+        """현재 선택된 문서 종류를 debounce 후 감지한다."""
         if hasattr(self, '_pending_detect') and self._pending_detect:
             self.root.after_cancel(self._pending_detect)
             self._pending_detect = None
 
-        # 50ms 후에 감지 실행 (debounce)
         self._pending_detect = self.root.after(50, self._do_detect)
 
     def _do_detect(self):
         """실제 감지 실행"""
         self._pending_detect = None
-        current_tab = self.notebook.index(self.notebook.select())
+        current_tab = self.current_doc_index
 
         # debounce가 중복 이벤트를 정리하므로 탭 이동 시마다 최신 상태를 다시 확인한다.
         self.tab_detected[current_tab] = True

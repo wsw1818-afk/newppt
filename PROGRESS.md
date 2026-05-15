@@ -261,8 +261,18 @@
 - Windows 11 새 메모장이 WinUI 전용 텍스트 컨트롤만 노출하면 Win32 방식으로 자동 추출할 수 없다. 현재 검증 환경에서도 Notepad 자동 검증은 SKIP 상태다.
 - WordOpenXML 복원은 `.docx` 대상으로 검증했다. `.docm` 매크로, OLE 임베딩, 특수 보안 플러그인 개체는 추가 실문서 검증이 필요하다.
 
+- 2026-05-15 UI/UX 개편: Notebook 탭을 좌측 문서 선택 사이드바 + 우측 작업 패널 구조로 변경
+- 2026-05-15 지원 메뉴는 PPT, Excel, Word, 메모장 4개로 정리하고 HWP/한글은 DRM 제약 안내 문구만 사이드바 하단에 표시
+- 2026-05-15 `_do_detect` 감지 흐름을 새 `current_doc_index` 기반으로 정리하고 기존 PPT/Excel/Word/메모장 감지 함수는 그대로 재사용
+- 2026-05-15 병렬 검토 결과 반영: 기존 탭별 `_setup_*_tab` 구성은 유지하고 프레임 raise 방식으로 화면 전환
+- 2026-05-15 `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `F9BAFED94EEC3CF697BEDB040B512F50E9C015283DAA1CA1ECBE0546427F2F9E`
+
 ## Next
-1. 실제 사용자 문서로 HWP/Word/메모장 탭 수동 확인
+1. 실제 사용자 문서로 Word/메모장 탭 수동 확인
 2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토
 3. 회사 보안 PC에서 폴더형 배포본 실행 여부와 `DocExtractor_Startup_Error_*.txt` 생성 여부 확인
 
