@@ -608,7 +608,7 @@ class DocumentExtractorV3:
     def _find_save_dialog_edit(self, dialog_hwnd):
         candidates = []
         for child in self._enum_descendant_windows(dialog_hwnd):
-            if not self._is_window_enabled_visible(child):
+            if not ctypes.windll.user32.IsWindow(child) or not ctypes.windll.user32.IsWindowVisible(child):
                 continue
             class_name = self._get_window_class_name(child)
             if class_name not in ("Edit", "RichEdit20W", "RichEdit50W", "RICHEDIT50W"):
@@ -645,6 +645,18 @@ class DocumentExtractorV3:
 
         return button_candidates[0] if button_candidates else 0
 
+    def _find_dialog_confirmation_button(self, dialog_hwnd):
+        for child in self._enum_descendant_windows(dialog_hwnd):
+            if not self._is_window_enabled_visible(child):
+                continue
+            if self._get_window_class_name(child) != "Button":
+                continue
+            title = self._get_window_title(child).strip()
+            normalized = title.replace("&", "").lower()
+            if "확인" in title or normalized in ("ok", "yes"):
+                return child
+        return 0
+
     def _submit_save_dialog_by_controls(self, dialog_hwnd, save_path):
         user32 = ctypes.windll.user32
         edit_hwnd = self._find_save_dialog_edit(dialog_hwnd)
@@ -656,7 +668,8 @@ class DocumentExtractorV3:
         self.logger.log(f"한글 UI 저장: 파일명 입력칸 감지 hwnd={edit_hwnd}")
         user32.SetForegroundWindow(dialog_hwnd)
         time.sleep(0.2)
-        user32.SendMessageW(edit_hwnd, WM_SETTEXT, 0, save_path)
+        dialog_save_path = os.path.normpath(save_path)
+        user32.SendMessageW(edit_hwnd, WM_SETTEXT, 0, dialog_save_path)
         time.sleep(0.2)
 
         button_hwnd = self._find_save_dialog_button(dialog_hwnd)
@@ -677,7 +690,7 @@ class DocumentExtractorV3:
             return
 
         self.logger.log("한글 UI 저장: 컨트롤 직접 입력 실패, 키보드 입력 폴백")
-        self._set_clipboard_text(save_path)
+        self._set_clipboard_text(os.path.normpath(save_path))
         self._send_hotkey(0x11, 0x41)  # Ctrl+A
         self._send_hotkey(0x11, 0x56)  # Ctrl+V
         self._send_vk(0x0D)  # Enter
@@ -706,7 +719,7 @@ class DocumentExtractorV3:
                 continue
             if not any(token in title.lower() for token in ("한글", "hwp", "저장", "확인", "경고", "알림", "save")):
                 continue
-            button_hwnd = self._find_save_dialog_button(hwnd)
+            button_hwnd = self._find_dialog_confirmation_button(hwnd)
             if button_hwnd:
                 self.logger.log(f"한글 UI 저장 확인 대화상자 처리: title='{title}', button={button_hwnd}")
                 user32.SendMessageW(button_hwnd, 0x00F5, 0, 0)  # BM_CLICK
@@ -731,7 +744,8 @@ class DocumentExtractorV3:
             )
             os.replace(save_path, backup_path)
 
-        self.logger.log(f"한글 COM 대체 UI 저장 시도: hwnd={hwnd}, path={save_path}")
+        dialog_save_path = os.path.normpath(save_path)
+        self.logger.log(f"한글 COM 대체 UI 저장 시도: hwnd={hwnd}, path={save_path}, dialog_path={dialog_save_path}")
 
         try:
             shortcuts = [
@@ -740,7 +754,7 @@ class DocumentExtractorV3:
                 ("Ctrl+Shift+S", lambda: self._send_hotkey(0x11, 0x10, 0x53)),
             ]
             for shortcut_name, shortcut_fn in shortcuts:
-                if not self._try_hwp_save_shortcut(hwnd, save_path, shortcut_name, shortcut_fn):
+                if not self._try_hwp_save_shortcut(hwnd, dialog_save_path, shortcut_name, shortcut_fn):
                     continue
 
                 deadline = time.time() + 20
