@@ -238,6 +238,11 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `7756EA5D0E4F34075F6B15ED9B0AD8166A34146A87EF9EB13BEE091AD8E74489`
 
+- 2026-05-15 다른 PC 앱 차단/DRM 진단을 위해 `diagnose_app_block.bat`와 `diagnose_app_block.ps1` 추가
+- 2026-05-15 진단 스크립트는 EXE 헤더(`MZ` vs `SCDSA004`), Authenticode 서명, Zone.Identifier/ADS, Defender/AppLocker/CodeIntegrity 이벤트, 선택적 실행 테스트를 Desktop 보고서로 저장
+- 2026-05-15 로컬 진단 결과: 결과물 EXE 헤더는 정상 `MZ`, 서명은 `NotSigned`, 차단 이벤트 없음
+- 2026-05-15 진단 파일을 `D:\OneDrive\코드작업\결과물\newppt`에 복사 완료
+
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.
