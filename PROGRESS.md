@@ -33,6 +33,7 @@
 - 최신 `DocumentExtractor_v3.exe`는 결과물 폴더에 복사되었고, 빌드본과 SHA256 해시가 같다.
 - 회사 보안 PC 대응으로 단일 EXE 빌드의 UPX 압축을 비활성화했다.
 - 회사 보안 솔루션이 단일 EXE 자가해제 방식을 차단할 때를 대비해 폴더형 배포본(`DocumentExtractor_v3_folder`)을 추가했다.
+- 회사 보안 솔루션이 PyInstaller EXE 자체를 차단할 때를 대비해 Python 소스 실행 배포본(`DocumentExtractor_v3_source`)을 추가했다.
 - GUI 생성 전 예외가 발생하면 `DocExtractor_Startup_Error_YYYYMMDD_HHMMSS.txt`를 바탕화면/문서/임시폴더 순서로 남긴다.
 - Word 기본 원본 복사 모드는 이미지/표/머리글/도형 보존을 위해 원본 파일 복사 실패 시 텍스트 재구성으로 자동 하락하지 않는다.
 - Word 원본 파일 복사가 DRM/보안 컨테이너(`SCDS`)로 감기면 Word 내부 `WordOpenXML`을 받아 표/이미지/바닥글이 포함된 정상 `.docx` 패키지 복원을 시도한다.
@@ -163,6 +164,9 @@
 - 2026-05-15 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt`로 복사 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `04EC1199B63A5C151172A5F8B22197F9451723E697A9D71AF0A6B873BCFE43E3`
 - 2026-05-15 폴더형 배포본 EXE SHA256 -> `0C8EF8EEBFAC6F275B1F90AF7A02EBF98245AFB37A29FB4D1AD7484217C62772`
+- 2026-05-15 회사 보안 PC 대응: EXE 차단 우회용 `DocumentExtractor_v3_source` 소스 실행 배포본 추가
+- 2026-05-15 `build_source_distribution.bat/.ps1`, `run_from_source.bat`, `install_requirements.bat`, `requirements_runtime.txt`, `SECURITY_PC_README.txt` 추가
+- 2026-05-15 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_source` 복사 -> 성공
 
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
@@ -176,6 +180,8 @@
 - `ppt_extractor_v3.py`에는 진단 없이 삼키는 `except:`/`except: pass`가 일부 남아 있다.
 - 회사 보안 PC에서 시작 오류 로그도 생성되지 않으면 Python 코드 진입 전 보안 솔루션이 실행 파일을 차단한 것으로 보고 격리/차단 로그 또는 허용 정책 확인이 필요하다.
 - 회사 보안 PC에서는 먼저 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_folder\DocumentExtractor_v3.exe`를 실행한다. 폴더 내부 파일을 분리하면 실행이 깨질 수 있다.
+- 폴더형 EXE도 차단되면 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_source\run_from_source.bat`를 사용한다. 이 방식은 대상 PC에 Python 3와 런타임 패키지가 필요하다.
+- 회사망에서 `pip install`이 차단되면 소스 실행 배포본도 IT 보안팀의 Python 패키지 설치/내부 저장소 설정이 필요하다.
 - HWP는 실제 사용자 문서 기준 다중 창/다중 문서 선택 검증이 아직 필요하다. COM 연결이 특정 창을 정확히 지정하지 못하는 환경에서는 사용자가 대상 문서를 활성화한 뒤 추출해야 한다.
 - Windows 11 새 메모장이 WinUI 전용 텍스트 컨트롤만 노출하면 Win32 방식으로 자동 추출할 수 없다. 현재 검증 환경에서도 Notepad 자동 검증은 SKIP 상태다.
 - WordOpenXML 복원은 `.docx` 대상으로 검증했다. `.docm` 매크로, OLE 임베딩, 특수 보안 플러그인 개체는 추가 실문서 검증이 필요하다.
