@@ -279,6 +279,15 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `58E225FF0CB5AFDCE0F536027962883DE0FF29177780D373DFB8571733122FE1`
 
+- 2026-05-15 일괄 변환 기능 추가: 좌측 메뉴에 `일괄 변환` 화면을 추가하고 파일/폴더 추가, 선택 제거, 목록 비우기, 출력 폴더 선택, 일괄 변환 시작 UI 구현
+- 2026-05-15 일괄 변환 지원 확장자: PPT/PPTX/PPTM/PPSX/POTX, XLS/XLSX/XLSM/XLSB, DOC/DOCX/DOCM, TXT. HWP는 기존 결정대로 제외
+- 2026-05-15 일괄 변환 처리: Office 파일은 COM으로 열어 원본 복사/구조 복원 경로를 재사용하고 TXT는 파일 복사로 처리
+- 2026-05-15 TXT 일괄 변환 smoke test -> `sample_복사본.txt` 생성 성공
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `C872C62A71A00992771275DBFA5795D625A88DBA39060ECDCE6A07FED217FBDD`
+
 ## Next
 1. 실제 사용자 문서로 Word/메모장 탭 수동 확인
 2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토

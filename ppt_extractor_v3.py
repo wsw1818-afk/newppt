@@ -242,9 +242,14 @@ class DocumentExtractorV3:
         self.notepad_save_path = tk.StringVar(value="")
         self.notepad_list = []
 
+        # 일괄 변환 상태
+        self.batch_files = []
+        self.batch_output_dir = tk.StringVar(value="")
+        self.batch_status_text = tk.StringVar(value="파일을 추가하고 출력 폴더를 선택하세요.")
+
         # 탭 변경 추적 (중복 감지 방지)
         self.last_tab_index = -1
-        self.tab_detected = [False, False, False, False]  # PPT, Excel, Word, 메모장
+        self.tab_detected = [False, False, False, False, False]  # PPT, Excel, Word, 메모장, 일괄 변환
         self.current_doc_index = 0
         self.nav_buttons = []
         self._hwp_detecting = False
@@ -358,6 +363,7 @@ class DocumentExtractorV3:
             ("Excel", "XLS", "시트/도형 보존", self.detect_open_excel),
             ("Word", "DOC", "문서 구조 보존", self.detect_open_word),
             ("메모장", "TXT", "텍스트 추출", self.detect_open_notepad),
+            ("일괄 변환", "ALL", "파일 묶음 처리", None),
         ]
         self.view_title_text = tk.StringVar(value=self.doc_views[0][0])
         self.view_summary_text = tk.StringVar(value=self.doc_views[0][2])
@@ -442,7 +448,12 @@ class DocumentExtractorV3:
         self.notepad_tab.grid(row=0, column=0, sticky="nsew")
         self._setup_notepad_tab()
 
-        self.content_frames = [self.ppt_tab, self.excel_tab, self.word_tab, self.notepad_tab]
+        # 일괄 변환 탭
+        self.batch_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
+        self.batch_tab.grid(row=0, column=0, sticky="nsew")
+        self._setup_batch_tab()
+
+        self.content_frames = [self.ppt_tab, self.excel_tab, self.word_tab, self.notepad_tab, self.batch_tab]
         self._select_document_view(0, detect=False)
 
         footer_frame = ttk.Frame(main_frame, padding=(12, 0, 12, 12), style="Footer.TFrame")
@@ -1807,6 +1818,8 @@ class DocumentExtractorV3:
             self.detect_open_word()
         elif current_tab == 3:  # 메모장
             self.detect_open_notepad()
+        elif current_tab == 4:  # 일괄 변환
+            self.status_text.set("일괄 변환 파일을 추가하세요")
 
     # ========== PPT 관련 메서드 ==========
 
@@ -4242,6 +4255,382 @@ class DocumentExtractorV3:
                                                   command=self.start_notepad_extraction,
                                                   style="Accent.TButton")
         self.notepad_extract_button.pack(pady=10)
+
+    def _setup_batch_tab(self):
+        """파일 일괄 변환 탭 설정"""
+        tab = self.batch_tab
+
+        file_frame = self._create_section(tab, "변환할 파일")
+        ttk.Label(
+            file_frame,
+            text="PPT, Excel, Word, TXT 파일을 여러 개 추가할 수 있습니다. HWP는 제외됩니다.",
+        ).pack(anchor=tk.W, pady=(0, 6))
+
+        list_frame = ttk.Frame(file_frame, style="Card.TFrame")
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        self.batch_file_listbox = tk.Listbox(
+            list_frame,
+            height=6,
+            selectmode=tk.EXTENDED,
+            bg="#ffffff",
+            fg=self.ui_colors["text"],
+            selectbackground=self.ui_colors["nav_selected_bg"],
+            selectforeground=self.ui_colors["nav_selected_fg"],
+            relief=tk.FLAT,
+            highlightthickness=1,
+            highlightbackground=self.ui_colors["border"],
+            font=("맑은 고딕", 9),
+        )
+        self.batch_file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.batch_file_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.batch_file_listbox.configure(yscrollcommand=scrollbar.set)
+
+        button_row = ttk.Frame(file_frame, style="Card.TFrame")
+        button_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(button_row, text="파일 추가", command=self.add_batch_files,
+                   style="Secondary.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(button_row, text="폴더 추가", command=self.add_batch_folder,
+                   style="Secondary.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(button_row, text="선택 제거", command=self.remove_selected_batch_files,
+                   style="Secondary.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(button_row, text="목록 비우기", command=self.clear_batch_files,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
+
+        output_frame = self._create_section(tab, "출력 폴더")
+        output_inner = ttk.Frame(output_frame, style="Card.TFrame")
+        output_inner.pack(fill=tk.X)
+        ttk.Entry(output_inner, textvariable=self.batch_output_dir, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(output_inner, text="찾아보기", command=self.browse_batch_output_dir,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
+
+        status_frame = self._create_section(tab, "처리 상태")
+        status_inner = ttk.Frame(status_frame, style="Card.TFrame")
+        status_inner.pack(fill=tk.X)
+        ttk.Label(status_inner, textvariable=self.batch_status_text, wraplength=390).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.batch_extract_button = ttk.Button(status_inner, text="일괄 변환 시작",
+                                               command=self.start_batch_conversion,
+                                               style="Accent.TButton")
+        self.batch_extract_button.pack(side=tk.RIGHT, padx=(10, 0))
+
+    def _batch_file_kind(self, path):
+        ext = os.path.splitext(path)[1].lower()
+        if ext in {".ppt", ".pptx", ".pptm", ".ppsx", ".potx"}:
+            return "ppt"
+        if ext in {".xls", ".xlsx", ".xlsm", ".xlsb"}:
+            return "excel"
+        if ext in {".doc", ".docx", ".docm"}:
+            return "word"
+        if ext in {".txt"}:
+            return "text"
+        return None
+
+    def _batch_target_extension(self, path, kind):
+        source_ext = os.path.splitext(path)[1].lower()
+        if kind == "ppt":
+            return source_ext if source_ext in {".pptx", ".pptm", ".ppsx", ".potx"} else ".pptx"
+        if kind == "excel":
+            return source_ext if source_ext in {".xlsx", ".xlsm", ".xlsb"} else ".xlsx"
+        if kind == "word":
+            return ".docx"
+        return ".txt"
+
+    def _make_unique_output_path(self, output_dir, source_path, kind):
+        stem = os.path.splitext(os.path.basename(source_path))[0]
+        ext = self._batch_target_extension(source_path, kind)
+        candidate = os.path.join(output_dir, f"{stem}_복사본{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+        for index in range(2, 1000):
+            candidate = os.path.join(output_dir, f"{stem}_복사본_{index}{ext}")
+            if not os.path.exists(candidate):
+                return candidate
+        raise Exception(f"출력 파일명을 만들 수 없습니다: {source_path}")
+
+    def _add_batch_paths(self, paths):
+        added = 0
+        seen = {os.path.abspath(path).lower() for path in self.batch_files}
+        for raw_path in paths:
+            path = os.path.abspath(raw_path)
+            if not os.path.isfile(path):
+                continue
+            if not self._batch_file_kind(path):
+                continue
+            key = path.lower()
+            if key in seen:
+                continue
+            self.batch_files.append(path)
+            seen.add(key)
+            added += 1
+        self._refresh_batch_file_list()
+        self.batch_status_text.set(f"{added}개 파일 추가됨, 총 {len(self.batch_files)}개")
+        return added
+
+    def _refresh_batch_file_list(self):
+        self.batch_file_listbox.delete(0, tk.END)
+        for index, path in enumerate(self.batch_files, start=1):
+            kind = self._batch_file_kind(path) or "skip"
+            self.batch_file_listbox.insert(tk.END, f"{index}. [{kind.upper()}] {path}")
+
+    def add_batch_files(self):
+        paths = filedialog.askopenfilenames(
+            title="일괄 변환할 파일 선택",
+            filetypes=[
+                ("지원 문서", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx;*.xls;*.xlsx;*.xlsm;*.xlsb;*.doc;*.docx;*.docm;*.txt"),
+                ("PowerPoint", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx"),
+                ("Excel", "*.xls;*.xlsx;*.xlsm;*.xlsb"),
+                ("Word", "*.doc;*.docx;*.docm"),
+                ("텍스트", "*.txt"),
+                ("모든 파일", "*.*"),
+            ],
+        )
+        if paths:
+            self._add_batch_paths(paths)
+
+    def add_batch_folder(self):
+        folder = filedialog.askdirectory(title="일괄 변환할 폴더 선택")
+        if not folder:
+            return
+        paths = []
+        for root_dir, _dirs, files in os.walk(folder):
+            for filename in files:
+                path = os.path.join(root_dir, filename)
+                if self._batch_file_kind(path):
+                    paths.append(path)
+        self._add_batch_paths(sorted(paths))
+
+    def remove_selected_batch_files(self):
+        selected = set(self.batch_file_listbox.curselection())
+        if not selected:
+            return
+        self.batch_files = [path for index, path in enumerate(self.batch_files) if index not in selected]
+        self._refresh_batch_file_list()
+        self.batch_status_text.set(f"선택 파일 제거 완료, 총 {len(self.batch_files)}개")
+
+    def clear_batch_files(self):
+        self.batch_files = []
+        self._refresh_batch_file_list()
+        self.batch_status_text.set("파일 목록을 비웠습니다.")
+
+    def browse_batch_output_dir(self):
+        folder = filedialog.askdirectory(title="일괄 변환 결과를 저장할 폴더 선택")
+        if folder:
+            self.batch_output_dir.set(folder)
+            self.batch_status_text.set(f"출력 폴더: {folder}")
+
+    def start_batch_conversion(self):
+        self.logger.log("일괄 변환 시작 버튼 클릭")
+        if not self.batch_files:
+            messagebox.showwarning("경고", "일괄 변환할 파일을 추가해주세요.")
+            return
+
+        output_dir = self.batch_output_dir.get().strip()
+        if not output_dir:
+            messagebox.showwarning("경고", "출력 폴더를 선택해주세요.")
+            return
+
+        os.makedirs(output_dir, exist_ok=True)
+        files = list(self.batch_files)
+        self.batch_extract_button.config(state=tk.DISABLED)
+        self.progress_var.set(0)
+        thread = threading.Thread(target=self._extract_batch, args=(files, output_dir))
+        thread.daemon = True
+        thread.start()
+
+    def _get_or_create_batch_app(self, apps, key, getter, display_name):
+        if key not in apps:
+            app, created = getter()
+            apps[key] = (app, created)
+            self.logger.log(f"일괄 변환 {display_name} 연결 완료 (created={created})")
+        return apps[key][0]
+
+    def _batch_convert_ppt_file(self, ppt_app, source_path, target_path):
+        source_pres = None
+        try:
+            source_pres = ppt_app.Presentations.Open(source_path, True, False, False)
+            self.logger.log(f"  PPT 열기 완료: {source_pres.Name}")
+            try:
+                self._save_native_copy(source_pres, target_path, "PPT 일괄")
+                return
+            except Exception as copy_error:
+                self.logger.log(f"  PPT 일괄 원본 복사 실패, 구조 복원 시도: {str(copy_error)[:120]}")
+            try:
+                self._save_ppt_clipboard_package_copy(source_pres, target_path)
+                return
+            except Exception as package_error:
+                self.logger.log(f"  PPT 일괄 클립보드 패키지 실패, 슬라이드 복제 시도: {str(package_error)[:120]}")
+            self._save_ppt_slide_clone(source_pres, target_path)
+        finally:
+            if source_pres is not None:
+                try:
+                    source_pres.Close()
+                except Exception:
+                    pass
+
+    def _save_excel_as_openxml_copy(self, source_wb, target_path):
+        target_ext = os.path.splitext(target_path)[1].lower()
+        file_format = {
+            ".xlsx": 51,
+            ".xlsm": 52,
+            ".xlsb": 50,
+        }.get(target_ext, 51)
+        temp_path = self._make_local_temp_path(target_ext if target_ext else ".xlsx")
+        try:
+            self._run_with_heartbeat(
+                "Excel 일괄 SaveAs",
+                lambda: source_wb.SaveAs(temp_path, FileFormat=file_format),
+            )
+            self._publish_verified_file(temp_path, target_path, "Excel 일괄 SaveAs")
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    def _batch_convert_excel_file(self, excel_app, source_path, target_path):
+        source_wb = None
+        try:
+            source_wb = excel_app.Workbooks.Open(source_path, ReadOnly=True)
+            self.logger.log(f"  Excel 열기 완료: {source_wb.Name}")
+            try:
+                self._save_native_copy(source_wb, target_path, "Excel 일괄")
+                return
+            except Exception as copy_error:
+                self.logger.log(f"  Excel 일괄 원본 복사 실패, SaveAs 변환 시도: {str(copy_error)[:120]}")
+            self._save_excel_as_openxml_copy(source_wb, target_path)
+        finally:
+            if source_wb is not None:
+                try:
+                    source_wb.Close(False)
+                except Exception:
+                    pass
+
+    def _save_word_as_docx_copy(self, source_doc, target_path):
+        temp_path = self._make_local_temp_path(".docx")
+        try:
+            self._run_with_heartbeat(
+                "Word 일괄 SaveAs2",
+                lambda: source_doc.SaveAs2(temp_path, FileFormat=16),
+            )
+            self._publish_verified_file(temp_path, target_path, "Word 일괄 SaveAs2")
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    def _batch_convert_word_file(self, word_app, source_path, target_path):
+        source_doc = None
+        try:
+            source_doc = word_app.Documents.Open(source_path, ReadOnly=True, AddToRecentFiles=False, Visible=False)
+            self.logger.log(f"  Word 열기 완료: {source_doc.Name}")
+            try:
+                if os.path.splitext(source_path)[1].lower() == os.path.splitext(target_path)[1].lower():
+                    self._copy_word_document_file(source_doc, target_path)
+                    return
+            except Exception as copy_error:
+                self.logger.log(f"  Word 일괄 원본 복사 실패, 구조 복원 시도: {str(copy_error)[:120]}")
+            try:
+                self._save_word_openxml_copy(source_doc, target_path)
+                return
+            except Exception as openxml_error:
+                self.logger.log(f"  Word 일괄 WordOpenXML 실패, SaveAs2 시도: {str(openxml_error)[:120]}")
+            self._save_word_as_docx_copy(source_doc, target_path)
+        finally:
+            if source_doc is not None:
+                try:
+                    source_doc.Close(False)
+                except Exception:
+                    pass
+
+    def _batch_convert_text_file(self, source_path, target_path):
+        target_dir = os.path.dirname(os.path.abspath(target_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+        if not os.path.exists(target_path) or os.path.getsize(target_path) <= 0:
+            raise Exception("TXT 복사 결과 파일이 없거나 비어 있습니다.")
+
+    def _extract_batch(self, files, output_dir):
+        self.logger.log("=== 일괄 변환 시작 ===")
+        extract_start = time.perf_counter()
+        apps = {}
+        successes = []
+        failures = []
+        if HAS_WIN32COM:
+            pythoncom.CoInitialize()
+
+        try:
+            total = len(files)
+            for index, source_path in enumerate(files, start=1):
+                kind = self._batch_file_kind(source_path)
+                progress = ((index - 1) / total) * 95
+                self.root.after(0, lambda p=progress: self.progress_var.set(p))
+                self.root.after(0, lambda i=index, t=total: self.status_text.set(f"일괄 변환 중... {i}/{t}"))
+
+                if not kind:
+                    failures.append((source_path, "지원하지 않는 확장자"))
+                    continue
+
+                target_path = self._make_unique_output_path(output_dir, source_path, kind)
+                self.logger.log(f"[{index}/{total}] 일괄 변환: {source_path} -> {target_path}")
+                self.root.after(0, lambda p=source_path: self.batch_status_text.set(f"처리 중: {os.path.basename(p)}"))
+
+                try:
+                    if kind in {"ppt", "excel", "word"} and not HAS_WIN32COM:
+                        raise Exception("Office 일괄 변환에는 pywin32/win32com이 필요합니다.")
+                    if kind == "ppt":
+                        ppt_app = self._get_or_create_batch_app(apps, "ppt", self._get_ppt_app, "PowerPoint")
+                        try:
+                            ppt_app.DisplayAlerts = 1
+                        except Exception:
+                            pass
+                        self._batch_convert_ppt_file(ppt_app, source_path, target_path)
+                    elif kind == "excel":
+                        excel_app = self._get_or_create_batch_app(apps, "excel", self._get_excel_app, "Excel")
+                        try:
+                            excel_app.DisplayAlerts = False
+                        except Exception:
+                            pass
+                        self._batch_convert_excel_file(excel_app, source_path, target_path)
+                    elif kind == "word":
+                        word_app = self._get_or_create_batch_app(apps, "word", self._get_word_app, "Word")
+                        self._batch_convert_word_file(word_app, source_path, target_path)
+                    elif kind == "text":
+                        self._batch_convert_text_file(source_path, target_path)
+                    successes.append(target_path)
+                    self.logger.log(f"  일괄 변환 완료: {target_path}")
+                except Exception as item_error:
+                    failures.append((source_path, str(item_error)))
+                    self.logger.error(f"일괄 변환 실패: {source_path}", item_error)
+
+            self.root.after(0, lambda: self.progress_var.set(100))
+            self._log_elapsed("일괄 변환 전체 시간", extract_start)
+            summary = f"일괄 변환 완료: 성공 {len(successes)}개, 실패 {len(failures)}개"
+            if failures:
+                summary += f"\n첫 실패: {os.path.basename(failures[0][0])} - {failures[0][1][:80]}"
+            self.logger.log(summary.replace("\n", " / "))
+            self.root.after(0, lambda: self.status_text.set(summary.split("\n")[0]))
+            self.root.after(0, lambda: self.batch_status_text.set(summary))
+            self.root.after(0, lambda: messagebox.showinfo("일괄 변환 완료", summary))
+        except Exception as error:
+            self.logger.error("일괄 변환 오류", error)
+            self.root.after(0, lambda: self.status_text.set(f"일괄 변환 오류: {str(error)[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"일괄 변환 중 오류:\n{str(error)}"))
+        finally:
+            for _key, (app, created) in apps.items():
+                if created:
+                    try:
+                        app.Quit()
+                    except Exception:
+                        pass
+            if HAS_WIN32COM:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+            self.root.after(0, lambda: self.batch_extract_button.config(state=tk.NORMAL))
 
     def browse_notepad_save_path(self):
         """메모장 저장 경로 선택"""
