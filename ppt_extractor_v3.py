@@ -606,9 +606,10 @@ class DocumentExtractorV3:
         return 0
 
     def _find_save_dialog_edit(self, dialog_hwnd):
+        user32 = ctypes.windll.user32
         candidates = []
         for child in self._enum_descendant_windows(dialog_hwnd):
-            if not ctypes.windll.user32.IsWindow(child) or not ctypes.windll.user32.IsWindowVisible(child):
+            if not user32.IsWindow(child):
                 continue
             class_name = self._get_window_class_name(child)
             if class_name not in ("Edit", "RichEdit20W", "RichEdit50W", "RICHEDIT50W"):
@@ -618,12 +619,20 @@ class DocumentExtractorV3:
             height = max(0, bottom - top)
             if width < 80 or height < 10:
                 continue
-            candidates.append((top, left, width, child))
+            visible = bool(user32.IsWindowVisible(child))
+            enabled = bool(user32.IsWindowEnabled(child))
+            candidates.append(((visible, enabled, top, left, width), child, class_name, (left, top, right, bottom)))
 
         if not candidates:
+            self.logger.log("한글 UI 저장: 파일명 입력칸 후보 없음")
             return 0
-        candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
-        return candidates[0][3]
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        summary = ", ".join(
+            f"hwnd={child}/class={class_name}/rect={rect}"
+            for _score, child, class_name, rect in candidates[:3]
+        )
+        self.logger.log(f"한글 UI 저장: 파일명 입력칸 후보 {summary}")
+        return candidates[0][1]
 
     def _find_save_dialog_button(self, dialog_hwnd):
         button_candidates = []
@@ -671,6 +680,11 @@ class DocumentExtractorV3:
         dialog_save_path = os.path.normpath(save_path)
         user32.SendMessageW(edit_hwnd, WM_SETTEXT, 0, dialog_save_path)
         time.sleep(0.2)
+        entered = self._get_window_title(edit_hwnd)
+        if entered:
+            self.logger.log(f"한글 UI 저장: 파일명 입력값 확인='{entered}'")
+        else:
+            self.logger.log("한글 UI 저장: 파일명 입력값 확인 실패")
 
         button_hwnd = self._find_save_dialog_button(dialog_hwnd)
         if button_hwnd:
@@ -749,7 +763,6 @@ class DocumentExtractorV3:
 
         try:
             shortcuts = [
-                ("F12", lambda: self._send_vk(0x7B)),
                 ("Alt+V", lambda: self._send_hotkey(0x12, 0x56)),
                 ("Ctrl+Shift+S", lambda: self._send_hotkey(0x11, 0x10, 0x53)),
             ]

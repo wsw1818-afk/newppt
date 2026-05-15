@@ -198,6 +198,14 @@
 - 2026-05-15 `build_source_distribution.bat/.ps1`, `run_from_source.bat`, `install_requirements.bat`, `requirements_runtime.txt`, `SECURITY_PC_README.txt` 추가
 - 2026-05-15 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_source` 복사 -> 성공
 
+- 2026-05-15 사용자 HWP 로그 분석: UI 저장 fallback은 성공했지만 `F12` 단축키가 한글 사전/부가창을 열 수 있어 저장 단축키 후보에서 제거.
+- 2026-05-15 한글 UI 저장 대화상자 파일명 입력칸 탐색을 visible 필터 없이 수행하도록 보강하고, 후보/입력값 확인 로그 추가.
+- 2026-05-15 `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `333569218BACFC026766735D21BB0A8A9FD41DA186E9FD0C6281FEE3FEF1EE76`
+
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.
