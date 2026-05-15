@@ -386,6 +386,30 @@ def check_word_safe_copy(out_dir: Path) -> str:
     return f"bytes={copied.stat().st_size} hash={sha256(copied)[:12]}"
 
 
+def check_word_xml_text_sanitizer(out_dir: Path) -> str:
+    from docx import Document
+    from ppt_extractor_v3 import DocumentExtractorV3
+
+    class Logger:
+        def log(self, _message):
+            pass
+
+    extractor = object.__new__(DocumentExtractorV3)
+    extractor.logger = Logger()
+    raw = "valid text\x00\x07\x0b\ud800\nnext line"
+    cleaned = extractor._clean_xml_text(raw)
+    if "\x00" in cleaned or "\x07" in cleaned or "\x0b" in cleaned or "\ud800" in cleaned:
+        raise RuntimeError("invalid XML characters were not removed")
+
+    output = out_dir / "sample_word_sanitized.docx"
+    doc = Document()
+    doc.add_paragraph(cleaned)
+    doc.save(output)
+    if not zip_has_prefix(output, "word/document.xml"):
+        raise RuntimeError("sanitized docx is invalid")
+    return f"chars={len(cleaned)} bytes={output.stat().st_size}"
+
+
 def visible_window_titles() -> list[str]:
     titles: list[str] = []
     user32 = ctypes.windll.user32
@@ -605,6 +629,7 @@ def main() -> int:
         ("ppt_clipboard_package", lambda: check_ppt_clipboard_package(out_dir)),
         ("excel_native_copy", lambda: check_excel_native_copy(out_dir)),
         ("word_safe_copy", lambda: check_word_safe_copy(out_dir)),
+        ("word_xml_text_sanitizer", lambda: check_word_xml_text_sanitizer(out_dir)),
         ("hwp_getobject_no_spawn", check_hwp_getobject_no_spawn),
         ("hwp_action_save", lambda: check_hwp_action_save(out_dir)),
         ("notepad_legacy_read", lambda: check_notepad_legacy_read(out_dir)),

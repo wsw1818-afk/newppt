@@ -36,6 +36,7 @@
 - GUI 생성 전 예외가 발생하면 `DocExtractor_Startup_Error_YYYYMMDD_HHMMSS.txt`를 바탕화면/문서/임시폴더 순서로 남긴다.
 - Word 기본 원본 복사 모드는 이미지/표/머리글/도형 보존을 위해 원본 파일 복사 실패 시 텍스트 재구성으로 자동 하락하지 않는다.
 - Word 텍스트 재구성 모드는 `.docx` 저장만 허용한다. `.doc`, `.rtf`, `.docm`은 원본 복사 경로에서만 처리한다.
+- Word/메모장 텍스트 재구성 DOCX 저장 시 XML 비호환 제어문자를 제거한다.
 - 메모장 감지는 `Notepad` 클래스 외에 `- Notepad`/`- 메모장` 제목 창도 잡고, 중첩된 `Edit`/`RichEditD2DPT`/`RICHEDIT50W` 컨트롤을 탐색한다.
 - 메모장 DOCX/TXT 저장 결과 검증을 추가했다.
 
@@ -143,6 +144,15 @@
 - 2026-05-15 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt`로 복사 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `E3F3171B85234E0D52B80C270FAAAE3B992572498F3C92340DE68049EDB117C0`
 - 2026-05-15 폴더형 배포본 EXE SHA256 -> `4D8E732CC9EBD66D017F46AE803C30BA0EC40998AC0AA2B33243549CB366B821`
+- 2026-05-15 사용자 Word 로그 분석: `저장되지 않은 변경사항` 때문에 원본 복사가 실패했고, 이전 EXE가 텍스트 재구성으로 자동 하락하면서 XML 비호환 제어문자 오류가 반복됨
+- 2026-05-15 Word/메모장 DOCX 텍스트 저장 전 XML 비호환 제어문자 제거 추가
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 9, SKIP 1, FAIL 0
+- 2026-05-15 `word_xml_text_sanitizer` 검증 추가 -> PASS
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3_folder.spec` -> 성공
+- 2026-05-15 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt`로 복사 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `343D8569F4352E22AD3EFA0A7A79BC8A9232E249A78B6E1B242073DB1E89D302`
+- 2026-05-15 폴더형 배포본 EXE SHA256 -> `FEA2572FE8A905B164032B26E8ECFF291182B7ECCE50FB6A3758DBEAAFC87AB4`
 
 ## Open Issues
 - 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.

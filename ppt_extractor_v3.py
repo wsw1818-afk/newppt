@@ -463,6 +463,28 @@ class DocumentExtractorV3:
 
         return 0
 
+    def _clean_xml_text(self, text):
+        """python-docx가 저장할 수 없는 Word/Win32 제어문자를 제거한다."""
+        if not text:
+            return ""
+
+        cleaned = []
+        removed = 0
+        for char in text:
+            code = ord(char)
+            if char in ("\t", "\n", "\r") or (
+                0x20 <= code <= 0xD7FF
+                or 0xE000 <= code <= 0xFFFD
+                or 0x10000 <= code <= 0x10FFFF
+            ):
+                cleaned.append(char)
+            else:
+                removed += 1
+
+        if removed:
+            self.logger.log(f"  XML 비호환 제어문자 제거: {removed}개")
+        return "".join(cleaned)
+
     def _log_elapsed(self, label, start_time):
         elapsed = time.perf_counter() - start_time
         self.logger.log(f"{label}: {elapsed:.2f}초")
@@ -3358,14 +3380,14 @@ class DocumentExtractorV3:
                         full_text = source_range.Text
                         if full_text and full_text.strip():
                             if not include_format:
-                                text = full_text.rstrip('\r\n\x07\x0d')
+                                text = self._clean_xml_text(full_text.rstrip('\r\n\x07\x0d'))
                                 if text:
                                     new_para.add_run(text)
                             else:
                                 runs_data = self._collect_word_runs(source_range, full_text)
                                 if runs_data:
                                     for run_text, fn, fs, b, it, ul, clr in runs_data:
-                                        run_text = run_text.rstrip('\r\n\x07\x0d')
+                                        run_text = self._clean_xml_text(run_text.rstrip('\r\n\x07\x0d'))
                                         if not run_text:
                                             continue
                                         run = new_para.add_run(run_text)
@@ -3389,13 +3411,13 @@ class DocumentExtractorV3:
                                             self.logger.log(f"  런 서식 적용 실패: {str(fmt_err)[:50]}")
                                 else:
                                     # 런 분석 실패 시 전체 텍스트로 폴백 (서식 없음)
-                                    text = full_text.rstrip('\r\n\x07\x0d')
+                                    text = self._clean_xml_text(full_text.rstrip('\r\n\x07\x0d'))
                                     if text:
                                         new_para.add_run(text)
                     except Exception as range_err:
                         self.logger.log(f"  단락 {p_idx} Range 접근 실패: {str(range_err)[:50]}")
                         try:
-                            text = source_range.Text.rstrip('\r\n\x07\x0d')
+                            text = self._clean_xml_text(source_range.Text.rstrip('\r\n\x07\x0d'))
                             if text:
                                 new_para.add_run(text)
                         except Exception:
@@ -3695,7 +3717,7 @@ class DocumentExtractorV3:
                 self.root.after(0, lambda: self.status_text.set("DOCX 파일로 저장 중..."))
                 new_doc = DocxDocument()
                 for line in text.split('\n'):
-                    line = line.rstrip('\r')
+                    line = self._clean_xml_text(line.rstrip('\r'))
                     new_doc.add_paragraph(line)
                 new_doc.save(save_path)
                 self._validate_office_openxml(save_path, "메모장 DOCX")
