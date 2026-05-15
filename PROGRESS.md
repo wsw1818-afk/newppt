@@ -271,6 +271,14 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `F9BAFED94EEC3CF697BEDB040B512F50E9C015283DAA1CA1ECBE0546427F2F9E`
 
+- 2026-05-15 사용자 피드백 반영: 검은 사이드바와 기본 Windows 회색 폼 느낌을 줄이고 밝은 내비게이션 + 흰색 카드형 섹션으로 UI 재정리
+- 2026-05-15 선택 메뉴는 배지형 문서 타입(PPT/XLS/DOC/TXT) + 설명 텍스트로 정리하고, 섹션/입력창/버튼 색상을 같은 톤으로 맞춤
+- 2026-05-15 `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 2026-05-15 단일 EXE 배포본 SHA256 -> `58E225FF0CB5AFDCE0F536027962883DE0FF29177780D373DFB8571733122FE1`
+
 ## Next
 1. 실제 사용자 문서로 Word/메모장 탭 수동 확인
 2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토

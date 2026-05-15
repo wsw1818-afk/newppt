@@ -261,24 +261,64 @@ class DocumentExtractorV3:
         except Exception:
             pass
 
-        style.configure("App.TFrame", background="#f3f5f7")
+        self.ui_colors = {
+            "app_bg": "#edf1f6",
+            "panel_bg": "#ffffff",
+            "nav_bg": "#ffffff",
+            "nav_border": "#d8e0ea",
+            "nav_fg": "#2f3b4a",
+            "nav_muted": "#667085",
+            "nav_selected_bg": "#eaf2ff",
+            "nav_selected_fg": "#1f5fbf",
+            "text": "#1f2937",
+            "muted": "#5d6b7c",
+            "border": "#d9e0e8",
+            "section_bg": "#ffffff",
+            "accent": "#2f6fed",
+            "accent_active": "#245fd1",
+            "field_bg": "#ffffff",
+        }
+        c = self.ui_colors
+
+        style.configure("App.TFrame", background=c["app_bg"])
+        style.configure("TFrame", background=c["section_bg"])
         style.configure("Panel.TFrame", background="#ffffff")
-        style.configure("Footer.TFrame", background="#f3f5f7")
-        style.configure("Title.TLabel", background="#f3f5f7", foreground="#111827", font=("맑은 고딕", 16, "bold"))
-        style.configure("Subtitle.TLabel", background="#f3f5f7", foreground="#4b5563", font=("맑은 고딕", 9))
-        style.configure("Section.TLabelframe", background="#ffffff", bordercolor="#d1d5db", relief=tk.SOLID)
-        style.configure("Section.TLabelframe.Label", background="#ffffff", foreground="#111827", font=("맑은 고딕", 10, "bold"))
-        style.configure("Accent.TButton", font=("맑은 고딕", 11, "bold"))
+        style.configure("Card.TFrame", background=c["section_bg"])
+        style.configure("Footer.TFrame", background=c["app_bg"])
+        style.configure("TLabel", background=c["section_bg"], foreground=c["text"], font=("맑은 고딕", 9))
+        style.configure("Title.TLabel", background=c["app_bg"], foreground=c["text"], font=("맑은 고딕", 15, "bold"))
+        style.configure("Subtitle.TLabel", background=c["app_bg"], foreground=c["muted"], font=("맑은 고딕", 9))
+        style.configure("PanelTitle.TLabel", background=c["panel_bg"], foreground=c["text"], font=("맑은 고딕", 14, "bold"))
+        style.configure("PanelSubtitle.TLabel", background=c["panel_bg"], foreground=c["muted"], font=("맑은 고딕", 9))
+        style.configure("Section.TLabelframe", background=c["section_bg"], bordercolor=c["border"], relief=tk.SOLID)
+        style.configure("Section.TLabelframe.Label", background=c["section_bg"], foreground=c["text"], font=("맑은 고딕", 9, "bold"))
+        style.configure("TRadiobutton", background=c["section_bg"], foreground=c["text"], font=("맑은 고딕", 9))
+        style.configure("TCheckbutton", background=c["section_bg"], foreground=c["text"], font=("맑은 고딕", 9))
+        style.configure("TEntry", fieldbackground=c["field_bg"], bordercolor=c["border"], lightcolor=c["border"], darkcolor=c["border"])
+        style.configure("TCombobox", fieldbackground=c["field_bg"], background=c["field_bg"], bordercolor=c["border"], arrowcolor=c["muted"])
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", c["field_bg"])],
+            background=[("readonly", c["field_bg"])],
+            foreground=[("readonly", c["text"])],
+        )
+        style.configure("TButton", padding=(12, 5), font=("맑은 고딕", 9))
+        style.map("TButton", background=[("active", "#e8edf5")])
+        style.configure("Secondary.TButton", background="#f6f8fb", foreground=c["text"], bordercolor=c["border"], padding=(12, 5))
+        style.configure("Accent.TButton", background=c["accent"], foreground="#ffffff", bordercolor=c["accent"], padding=(18, 9), font=("맑은 고딕", 10, "bold"))
+        style.map("Accent.TButton", background=[("active", c["accent_active"])], foreground=[("active", "#ffffff")])
+        style.configure("Horizontal.TProgressbar", background=c["accent"], troughcolor="#dfe5ee", bordercolor="#dfe5ee")
 
     def setup_ui(self):
         """UI 구성"""
         self.logger.log("UI 구성 시작")
         self._configure_styles()
+        self.root.configure(bg=self.ui_colors["app_bg"])
 
         main_frame = ttk.Frame(self.root, padding=0, style="App.TFrame")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        header_frame = ttk.Frame(main_frame, padding=(18, 14, 18, 8), style="App.TFrame")
+        header_frame = ttk.Frame(main_frame, padding=(22, 16, 22, 8), style="App.TFrame")
         header_frame.pack(fill=tk.X)
 
         ttk.Label(header_frame, text="문서 추출 도구 v3", style="Title.TLabel").pack(anchor=tk.W)
@@ -288,21 +328,30 @@ class DocumentExtractorV3:
             style="Subtitle.TLabel",
         ).pack(anchor=tk.W, pady=(2, 0))
 
-        body_frame = ttk.Frame(main_frame, padding=(12, 0, 12, 10), style="App.TFrame")
+        body_frame = ttk.Frame(main_frame, padding=(14, 2, 14, 10), style="App.TFrame")
         body_frame.pack(fill=tk.BOTH, expand=True)
 
-        sidebar = tk.Frame(body_frame, width=172, bg="#111827", bd=0, highlightthickness=0)
+        c = self.ui_colors
+        sidebar = tk.Frame(
+            body_frame,
+            width=188,
+            bg=c["nav_bg"],
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=c["nav_border"],
+            highlightcolor=c["nav_border"],
+        )
         sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 12))
         sidebar.pack_propagate(False)
 
         tk.Label(
             sidebar,
             text="문서 종류",
-            bg="#111827",
-            fg="#9ca3af",
+            bg=c["nav_bg"],
+            fg=c["nav_muted"],
             font=("맑은 고딕", 9, "bold"),
             anchor=tk.W,
-        ).pack(fill=tk.X, padx=14, pady=(14, 8))
+        ).pack(fill=tk.X, padx=16, pady=(16, 8))
 
         self.doc_views = [
             ("PowerPoint", "PPT", "슬라이드/도형 보존", self.detect_open_ppt),
@@ -314,37 +363,45 @@ class DocumentExtractorV3:
         self.view_summary_text = tk.StringVar(value=self.doc_views[0][2])
 
         for index, (title, badge, summary, _detect_fn) in enumerate(self.doc_views):
-            button = tk.Button(
-                sidebar,
-                text=f"{title}\n{badge} · {summary}",
-                command=lambda i=index: self._select_document_view(i),
-                anchor=tk.W,
-                justify=tk.LEFT,
-                relief=tk.FLAT,
-                bd=0,
-                padx=12,
-                pady=9,
-                bg="#1f2937",
-                fg="#e5e7eb",
-                activebackground="#2563eb",
-                activeforeground="#ffffff",
-                font=("맑은 고딕", 9),
-            )
-            button.pack(fill=tk.X, padx=10, pady=4)
-            self.nav_buttons.append(button)
+            item = tk.Frame(sidebar, bg=c["nav_bg"], bd=0, cursor="hand2")
+            item.pack(fill=tk.X, padx=10, pady=3)
+            badge_label = tk.Label(item, text=badge, width=4, bg="#f2f5f9", fg=c["nav_muted"],
+                                   font=("맑은 고딕", 8, "bold"))
+            badge_label.pack(side=tk.LEFT, padx=(8, 7), pady=9)
+            text_box = tk.Frame(item, bg=c["nav_bg"])
+            text_box.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=7)
+            title_label = tk.Label(text_box, text=title, bg=c["nav_bg"], fg=c["nav_fg"],
+                                   font=("맑은 고딕", 9, "bold"), anchor=tk.W)
+            title_label.pack(fill=tk.X)
+            summary_label = tk.Label(text_box, text=summary, bg=c["nav_bg"], fg=c["nav_muted"],
+                                     font=("맑은 고딕", 8), anchor=tk.W)
+            summary_label.pack(fill=tk.X)
+
+            for widget in (item, badge_label, text_box, title_label, summary_label):
+                widget.bind("<Button-1>", lambda _event, i=index: self._select_document_view(i))
+            self.nav_buttons.append((item, badge_label, text_box, title_label, summary_label))
 
         tk.Label(
             sidebar,
             text="한글/HWP는 회사 DRM 환경에서 일반 파일 변환이 불가해 제외됨",
-            bg="#111827",
-            fg="#9ca3af",
+            bg=c["nav_bg"],
+            fg=c["nav_muted"],
             font=("맑은 고딕", 8),
             justify=tk.LEFT,
-            wraplength=138,
+            wraplength=150,
             anchor=tk.W,
-        ).pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(8, 14))
+        ).pack(side=tk.BOTTOM, fill=tk.X, padx=16, pady=(8, 16))
 
-        content_shell = ttk.Frame(body_frame, padding=(12, 12), style="Panel.TFrame")
+        content_shell = tk.Frame(
+            body_frame,
+            bg=c["panel_bg"],
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=c["border"],
+            highlightcolor=c["border"],
+            padx=16,
+            pady=14,
+        )
         content_shell.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         title_row = ttk.Frame(content_shell, style="Panel.TFrame")
@@ -352,16 +409,12 @@ class DocumentExtractorV3:
         ttk.Label(
             title_row,
             textvariable=self.view_title_text,
-            background="#ffffff",
-            foreground="#111827",
-            font=("맑은 고딕", 14, "bold"),
+            style="PanelTitle.TLabel",
         ).pack(side=tk.LEFT)
         ttk.Label(
             title_row,
             textvariable=self.view_summary_text,
-            background="#ffffff",
-            foreground="#6b7280",
-            font=("맑은 고딕", 9),
+            style="PanelSubtitle.TLabel",
         ).pack(side=tk.LEFT, padx=(10, 0), pady=(3, 0))
 
         self.content_area = ttk.Frame(content_shell, style="Panel.TFrame")
@@ -409,6 +462,32 @@ class DocumentExtractorV3:
 
         self.logger.log("UI 구성 완료")
         self.root.after(120, self._schedule_detect)
+
+    def _create_section(self, parent, title):
+        """기본 LabelFrame 대신 쓰는 밝은 카드형 섹션."""
+        c = self.ui_colors
+        outer = tk.Frame(
+            parent,
+            bg=c["section_bg"],
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=c["border"],
+            highlightcolor=c["border"],
+        )
+        outer.pack(fill=tk.X, pady=(0, 10), padx=5)
+
+        tk.Label(
+            outer,
+            text=title,
+            bg=c["section_bg"],
+            fg=c["text"],
+            font=("맑은 고딕", 9, "bold"),
+            anchor=tk.W,
+        ).pack(fill=tk.X, padx=12, pady=(10, 4))
+
+        body = ttk.Frame(outer, style="Card.TFrame")
+        body.pack(fill=tk.X, padx=12, pady=(0, 12))
+        return body
 
     def _connect_com_app(self, prog_id, display_name, allow_dispatch=True, use_get_active=True):
         """Office/HWP COM 애플리케이션 연결을 공통 처리한다."""
@@ -1521,8 +1600,7 @@ class DocumentExtractorV3:
         tab = self.ppt_tab
 
         # 문서 정보 프레임
-        info_frame = ttk.LabelFrame(tab, text="열린 PPT 선택", padding="10")
-        info_frame.pack(fill=tk.X, pady=5, padx=5)
+        info_frame = self._create_section(tab, "열린 PPT 선택")
 
         # PPT 선택 콤보박스
         select_frame = ttk.Frame(info_frame)
@@ -1540,20 +1618,20 @@ class DocumentExtractorV3:
                   font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_ppt).pack(pady=(10, 0))
+        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_ppt,
+                   style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
-        path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
-        path_frame.pack(fill=tk.X, pady=5, padx=5)
+        path_frame = self._create_section(tab, "새 파일 저장 위치")
 
         path_inner = ttk.Frame(path_frame)
         path_inner.pack(fill=tk.X)
-        ttk.Entry(path_inner, textvariable=self.ppt_save_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(path_inner, text="찾아보기", command=self.browse_ppt_save_path).pack(side=tk.LEFT)
+        ttk.Entry(path_inner, textvariable=self.ppt_save_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(path_inner, text="찾아보기", command=self.browse_ppt_save_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # 추출 모드 프레임
-        mode_frame = ttk.LabelFrame(tab, text="추출 모드", padding="10")
-        mode_frame.pack(fill=tk.X, pady=5, padx=5)
+        mode_frame = self._create_section(tab, "추출 모드")
 
         self.ppt_extract_mode = tk.StringVar(value="native_copy")
 
@@ -1575,8 +1653,7 @@ class DocumentExtractorV3:
         tab = self.excel_tab
 
         # 문서 정보 프레임
-        info_frame = ttk.LabelFrame(tab, text="열린 Excel 선택", padding="10")
-        info_frame.pack(fill=tk.X, pady=5, padx=5)
+        info_frame = self._create_section(tab, "열린 Excel 선택")
 
         # Excel 선택 콤보박스
         select_frame = ttk.Frame(info_frame)
@@ -1594,20 +1671,20 @@ class DocumentExtractorV3:
                   font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_excel).pack(pady=(10, 0))
+        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_excel,
+                   style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
-        path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
-        path_frame.pack(fill=tk.X, pady=5, padx=5)
+        path_frame = self._create_section(tab, "새 파일 저장 위치")
 
         path_inner = ttk.Frame(path_frame)
         path_inner.pack(fill=tk.X)
-        ttk.Entry(path_inner, textvariable=self.excel_save_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(path_inner, text="찾아보기", command=self.browse_excel_save_path).pack(side=tk.LEFT)
+        ttk.Entry(path_inner, textvariable=self.excel_save_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(path_inner, text="찾아보기", command=self.browse_excel_save_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # 추출 옵션 프레임
-        option_frame = ttk.LabelFrame(tab, text="추출 옵션", padding="10")
-        option_frame.pack(fill=tk.X, pady=5, padx=5)
+        option_frame = self._create_section(tab, "추출 옵션")
 
         self.excel_include_format = tk.BooleanVar(value=False)
         self.excel_include_formulas = tk.BooleanVar(value=False)
@@ -1685,11 +1762,21 @@ class DocumentExtractorV3:
             if frame_index == index:
                 frame.tkraise()
 
-        for button_index, button in enumerate(self.nav_buttons):
+        c = self.ui_colors
+        for button_index, widgets in enumerate(self.nav_buttons):
+            item, badge_label, text_box, title_label, summary_label = widgets
             if button_index == index:
-                button.configure(bg="#2563eb", fg="#ffffff", activebackground="#2563eb")
+                item.configure(bg=c["nav_selected_bg"])
+                text_box.configure(bg=c["nav_selected_bg"])
+                badge_label.configure(bg=c["accent"], fg="#ffffff")
+                title_label.configure(bg=c["nav_selected_bg"], fg=c["nav_selected_fg"])
+                summary_label.configure(bg=c["nav_selected_bg"], fg=c["nav_selected_fg"])
             else:
-                button.configure(bg="#1f2937", fg="#e5e7eb", activebackground="#2563eb")
+                item.configure(bg=c["nav_bg"])
+                text_box.configure(bg=c["nav_bg"])
+                badge_label.configure(bg="#f2f5f9", fg=c["nav_muted"])
+                title_label.configure(bg=c["nav_bg"], fg=c["nav_fg"])
+                summary_label.configure(bg=c["nav_bg"], fg=c["nav_muted"])
 
         if detect:
             self.status_text.set(f"{title} 감지 준비")
@@ -3683,8 +3770,7 @@ class DocumentExtractorV3:
         tab = self.word_tab
 
         # 문서 정보 프레임
-        info_frame = ttk.LabelFrame(tab, text="열린 Word 선택", padding="10")
-        info_frame.pack(fill=tk.X, pady=5, padx=5)
+        info_frame = self._create_section(tab, "열린 Word 선택")
 
         # Word 선택 콤보박스
         select_frame = ttk.Frame(info_frame)
@@ -3702,20 +3788,20 @@ class DocumentExtractorV3:
                   font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_word).pack(pady=(10, 0))
+        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_word,
+                   style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
-        path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
-        path_frame.pack(fill=tk.X, pady=5, padx=5)
+        path_frame = self._create_section(tab, "새 파일 저장 위치")
 
         path_inner = ttk.Frame(path_frame)
         path_inner.pack(fill=tk.X)
-        ttk.Entry(path_inner, textvariable=self.word_save_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(path_inner, text="찾아보기", command=self.browse_word_save_path).pack(side=tk.LEFT)
+        ttk.Entry(path_inner, textvariable=self.word_save_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(path_inner, text="찾아보기", command=self.browse_word_save_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # 추출 옵션 프레임
-        option_frame = ttk.LabelFrame(tab, text="추출 옵션", padding="10")
-        option_frame.pack(fill=tk.X, pady=5, padx=5)
+        option_frame = self._create_section(tab, "추출 옵션")
 
         self.word_include_format = tk.BooleanVar(value=True)
         ttk.Checkbutton(option_frame, text="서식 포함 (글꼴, 색상, 정렬, 들여쓰기)",
@@ -4114,8 +4200,7 @@ class DocumentExtractorV3:
         tab = self.notepad_tab
 
         # 안내 프레임
-        info_frame = ttk.LabelFrame(tab, text="메모장 텍스트 추출", padding="10")
-        info_frame.pack(fill=tk.X, pady=5, padx=5)
+        info_frame = self._create_section(tab, "메모장 텍스트 추출")
 
         ttk.Label(info_frame,
                   text="현재 열려있는 메모장 창의 텍스트를 추출합니다.\n"
@@ -4131,20 +4216,20 @@ class DocumentExtractorV3:
         self.notepad_combo.bind("<<ComboboxSelected>>", self.on_notepad_selected)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_notepad).pack(pady=(10, 0))
+        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_notepad,
+                   style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
-        path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
-        path_frame.pack(fill=tk.X, pady=5, padx=5)
+        path_frame = self._create_section(tab, "새 파일 저장 위치")
 
         path_inner = ttk.Frame(path_frame)
         path_inner.pack(fill=tk.X)
-        ttk.Entry(path_inner, textvariable=self.notepad_save_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(path_inner, text="찾아보기", command=self.browse_notepad_save_path).pack(side=tk.LEFT)
+        ttk.Entry(path_inner, textvariable=self.notepad_save_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(path_inner, text="찾아보기", command=self.browse_notepad_save_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
         # 저장 형식 프레임
-        format_frame = ttk.LabelFrame(tab, text="저장 형식", padding="10")
-        format_frame.pack(fill=tk.X, pady=5, padx=5)
+        format_frame = self._create_section(tab, "저장 형식")
 
         self.notepad_save_format = tk.StringVar(value="txt")
         ttk.Radiobutton(format_frame, text="TXT (텍스트 파일)",
