@@ -6,6 +6,9 @@
 - Last updated: 2026-05-15
 
 ## Latest Build
+- 2026-05-15 16:21 KST: rebuilt onefile and folder EXE after HWP Save As dialog control-submit changes.
+- Onefile SHA256: `5B4C5495A3E5547C488B5F051C3CB3279AE5C5CF8079EBE686E1AD52EB60E22D`
+- Folder SHA256: `DAD0AF50E1B5D05F2955262FC33C60348E81AC2A1E932F13DFB92264E295BB1D`
 - 2026-05-15 15:44 KST: rebuilt onefile and folder EXE after expected Office-not-open log downgrade.
 - Onefile SHA256: `F41381776A88FC2CA8092CDAADE3FEA5D2C1DF1CC93939649C3734C42CEF2783`
 - Folder SHA256: `C476AB17632712F7CAE029CD924B1C0DC0A5C5C11D1677271CF8C5FE6A613C6E`
@@ -56,6 +59,8 @@
 - 메모장 DOCX/TXT 저장 결과 검증을 추가했다.
 
 ## Verification
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- 2026-05-15 HWP UI fallback now logs the Save As dialog tree and tries direct `WM_SETTEXT`/button click before keyboard fallback.
 - 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
 - 2026-05-15 PPT/Excel/Word expected "app not open" detection is now logged as info instead of `[ERROR]`.
 - 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0

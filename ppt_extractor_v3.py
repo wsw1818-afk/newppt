@@ -532,6 +532,57 @@ class DocumentExtractorV3:
             pass
         time.sleep(0.4)
 
+    def _is_window_enabled_visible(self, hwnd):
+        user32 = ctypes.windll.user32
+        try:
+            return bool(user32.IsWindow(hwnd) and user32.IsWindowVisible(hwnd) and user32.IsWindowEnabled(hwnd))
+        except Exception:
+            return False
+
+    def _get_window_rect_tuple(self, hwnd):
+        rect = wintypes.RECT()
+        try:
+            ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            return (rect.left, rect.top, rect.right, rect.bottom)
+        except Exception:
+            return (0, 0, 0, 0)
+
+    def _enum_descendant_windows(self, parent_hwnd):
+        user32 = ctypes.windll.user32
+        found = []
+        queue = [parent_hwnd]
+        seen = set()
+        while queue:
+            current = queue.pop(0)
+            if current in seen:
+                continue
+            seen.add(current)
+
+            child = 0
+            while True:
+                child = user32.FindWindowExW(current, child, None, None)
+                if not child:
+                    break
+                found.append(int(child))
+                queue.append(int(child))
+        return found
+
+    def _log_window_tree(self, hwnd, label, limit=80):
+        try:
+            title = self._get_window_title(hwnd)
+            class_name = self._get_window_class_name(hwnd)
+            self.logger.log(f"{label}: hwnd={hwnd}, class='{class_name}', title='{title}'")
+            for idx, child in enumerate(self._enum_descendant_windows(hwnd)[:limit], start=1):
+                child_title = self._get_window_title(child)
+                child_class = self._get_window_class_name(child)
+                rect = self._get_window_rect_tuple(child)
+                self.logger.log(
+                    f"  child {idx}: hwnd={child}, class='{child_class}', "
+                    f"title='{child_title}', rect={rect}"
+                )
+        except Exception as log_error:
+            self.logger.log(f"{label} 창 구조 로그 실패: {str(log_error)[:80]}")
+
     def _wait_for_save_dialog(self, owner_hwnd, timeout=2.5):
         user32 = ctypes.windll.user32
         deadline = time.time() + timeout
@@ -554,10 +605,78 @@ class DocumentExtractorV3:
             time.sleep(0.1)
         return 0
 
+    def _find_save_dialog_edit(self, dialog_hwnd):
+        candidates = []
+        for child in self._enum_descendant_windows(dialog_hwnd):
+            if not self._is_window_enabled_visible(child):
+                continue
+            class_name = self._get_window_class_name(child)
+            if class_name not in ("Edit", "RichEdit20W", "RichEdit50W", "RICHEDIT50W"):
+                continue
+            left, top, right, bottom = self._get_window_rect_tuple(child)
+            width = max(0, right - left)
+            height = max(0, bottom - top)
+            if width < 80 or height < 10:
+                continue
+            candidates.append((top, left, width, child))
+
+        if not candidates:
+            return 0
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        return candidates[0][3]
+
+    def _find_save_dialog_button(self, dialog_hwnd):
+        button_candidates = []
+        for child in self._enum_descendant_windows(dialog_hwnd):
+            if not self._is_window_enabled_visible(child):
+                continue
+            class_name = self._get_window_class_name(child)
+            if class_name != "Button":
+                continue
+            title = self._get_window_title(child).strip()
+            normalized = title.replace("&", "").lower()
+            if (
+                "저장" in title
+                or "save" in normalized
+                or "확인" in title
+                or normalized in ("ok", "yes")
+            ):
+                button_candidates.append(child)
+
+        return button_candidates[0] if button_candidates else 0
+
+    def _submit_save_dialog_by_controls(self, dialog_hwnd, save_path):
+        user32 = ctypes.windll.user32
+        edit_hwnd = self._find_save_dialog_edit(dialog_hwnd)
+        if not edit_hwnd:
+            return False
+
+        WM_SETTEXT = 0x000C
+        BM_CLICK = 0x00F5
+        self.logger.log(f"한글 UI 저장: 파일명 입력칸 감지 hwnd={edit_hwnd}")
+        user32.SetForegroundWindow(dialog_hwnd)
+        time.sleep(0.2)
+        user32.SendMessageW(edit_hwnd, WM_SETTEXT, 0, save_path)
+        time.sleep(0.2)
+
+        button_hwnd = self._find_save_dialog_button(dialog_hwnd)
+        if button_hwnd:
+            self.logger.log(f"한글 UI 저장: 저장 버튼 감지 hwnd={button_hwnd}")
+            user32.SendMessageW(button_hwnd, BM_CLICK, 0, 0)
+        else:
+            self.logger.log("한글 UI 저장: 저장 버튼 감지 실패, Enter 전송")
+            self._send_vk(0x0D)
+        return True
+
     def _submit_save_dialog(self, dialog_hwnd, save_path):
         user32 = ctypes.windll.user32
         user32.SetForegroundWindow(dialog_hwnd)
         time.sleep(0.2)
+        self._log_window_tree(dialog_hwnd, "한글 UI 저장 대화상자")
+        if self._submit_save_dialog_by_controls(dialog_hwnd, save_path):
+            return
+
+        self.logger.log("한글 UI 저장: 컨트롤 직접 입력 실패, 키보드 입력 폴백")
         self._set_clipboard_text(save_path)
         self._send_hotkey(0x11, 0x41)  # Ctrl+A
         self._send_hotkey(0x11, 0x56)  # Ctrl+V
@@ -574,6 +693,23 @@ class DocumentExtractorV3:
         self.logger.log(f"한글 UI 저장 단축키 {shortcut_name}: 저장 대화상자 감지 hwnd={dialog_hwnd}")
         self._submit_save_dialog(dialog_hwnd, save_path)
         return True
+
+    def _confirm_hwp_save_dialogs(self, owner_hwnd):
+        """저장 중 확인/경고 대화상자가 뜨면 기본 확인 버튼을 눌러 진행한다."""
+        user32 = ctypes.windll.user32
+        for hwnd, _title in self._get_visible_windows():
+            if hwnd == owner_hwnd:
+                continue
+            class_name = self._get_window_class_name(hwnd)
+            title = self._get_window_title(hwnd)
+            if class_name != "#32770":
+                continue
+            if not any(token in title.lower() for token in ("한글", "hwp", "저장", "확인", "경고", "알림", "save")):
+                continue
+            button_hwnd = self._find_save_dialog_button(hwnd)
+            if button_hwnd:
+                self.logger.log(f"한글 UI 저장 확인 대화상자 처리: title='{title}', button={button_hwnd}")
+                user32.SendMessageW(button_hwnd, 0x00F5, 0, 0)  # BM_CLICK
 
     def _save_hwp_via_window(self, hwnd, save_path, save_format):
         """COM 연결이 막힌 한글 창을 UI 단축키로 다른 이름 저장한다."""
@@ -613,6 +749,7 @@ class DocumentExtractorV3:
                         if backup_path and os.path.exists(backup_path):
                             os.remove(backup_path)
                         return
+                    self._confirm_hwp_save_dialogs(hwnd)
                     time.sleep(0.2)
                 self.logger.log(f"한글 UI 저장 단축키 {shortcut_name}: 파일 생성 대기 시간 초과")
                 self._send_vk(0x1B)  # Esc
