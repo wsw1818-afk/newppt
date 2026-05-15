@@ -584,6 +584,35 @@ def find_window_for_pid(pid: int, class_name: str | None = None) -> int | None:
     return found[0] if found else None
 
 
+def find_window_by_title_fragment(title_fragment: str, class_names: set[str] | None = None) -> int | None:
+    user32 = ctypes.windll.user32
+    enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    fragment = title_fragment.lower()
+    found: list[int] = []
+
+    def enum_proc(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+
+        title_len = user32.GetWindowTextLengthW(hwnd)
+        if title_len <= 0:
+            return True
+
+        title_buffer = ctypes.create_unicode_buffer(title_len + 1)
+        user32.GetWindowTextW(hwnd, title_buffer, title_len + 1)
+        if fragment not in title_buffer.value.lower():
+            return True
+
+        if class_names is not None and window_class_name(hwnd) not in class_names:
+            return True
+
+        found.append(int(hwnd))
+        return False
+
+    user32.EnumWindows(enum_proc_type(enum_proc), 0)
+    return found[0] if found else None
+
+
 def window_class_name(hwnd: int) -> str:
     user32 = ctypes.windll.user32
     buffer = ctypes.create_unicode_buffer(256)
@@ -628,15 +657,17 @@ def check_notepad_legacy_read(out_dir: Path) -> str:
 
     hwnd = None
     try:
-        deadline = time.time() + 8
+        deadline = time.time() + 12
         while time.time() < deadline:
             hwnd = find_window_for_pid(proc.pid)
+            if not hwnd:
+                hwnd = find_window_by_title_fragment(sample.name, {"Notepad"})
             if hwnd:
                 break
             time.sleep(0.2)
 
         if not hwnd:
-            raise SkipTest("legacy Notepad top-level window not found")
+            raise SkipTest("Notepad top-level window not found")
 
         edit_hwnd = find_child_window_by_classes(hwnd, ["Edit", "RichEditD2DPT", "RICHEDIT50W"])
         if not edit_hwnd:

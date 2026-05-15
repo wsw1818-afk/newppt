@@ -50,6 +50,9 @@
 - 메모장 DOCX/TXT 저장 결과 검증을 추가했다.
 
 ## Verification
+- 2026-05-15 `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 0, FAIL 0
+- 2026-05-15 HWP checks -> PASS (`hwp_getobject_no_spawn`, `hwp_action_save`)
+- 2026-05-15 Notepad check -> PASS (`notepad_legacy_read`, chars=26)
 - `py -m py_compile ppt_extractor_v3.py document_extractor.py pdf_printer.py ppt_extractor.py ppt_extractor_v2.py` -> 성공
 - `git diff --check` -> 성공
 - `AUTOSHAPE_MAPPING` AST 중복 키 검사 -> `duplicate_keys: []`
