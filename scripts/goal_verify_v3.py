@@ -87,7 +87,13 @@ class SkipTest(Exception):
     pass
 
 
+def require_windows(label: str) -> None:
+    if os.name != "nt":
+        raise SkipTest(f"{label} requires Windows")
+
+
 def import_com():
+    require_windows("pywin32 COM checks")
     try:
         import pythoncom
         import pywintypes
@@ -476,6 +482,7 @@ def check_word_xml_text_sanitizer(out_dir: Path) -> str:
 
 
 def visible_window_titles() -> list[str]:
+    require_windows("visible window enumeration")
     titles: list[str] = []
     user32 = ctypes.windll.user32
     enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -738,6 +745,7 @@ def find_child_window_by_classes(parent_hwnd: int, class_names: list[str]) -> in
 
 
 def check_notepad_legacy_read(out_dir: Path) -> str:
+    require_windows("notepad legacy read")
     user32 = ctypes.windll.user32
     sample = out_dir / "sample_notepad.txt"
     expected = "verify notepad legacy read"

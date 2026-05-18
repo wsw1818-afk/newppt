@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
+tkinterdnd2_datas = collect_data_files('tkinterdnd2')
 
 a = Analysis(
     ['ppt_extractor_v3.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=tkinterdnd2_datas,
     hiddenimports=[
         'win32com',
         'win32com.client',
@@ -19,6 +22,7 @@ a = Analysis(
         'PIL.Image',
         'docx',
         'lxml',
+        'tkinterdnd2',
     ],
     hookspath=[],
     hooksconfig={},

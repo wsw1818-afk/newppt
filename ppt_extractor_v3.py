@@ -23,6 +23,14 @@ import base64
 import ctypes
 from ctypes import wintypes
 
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_TKINTERDND = True
+except ImportError:
+    DND_FILES = None
+    TkinterDnD = None
+    HAS_TKINTERDND = False
+
 # python-pptx 관련
 try:
     from pptx import Presentation
@@ -197,11 +205,25 @@ class DocumentExtractorV3:
     PPT_CLIPBOARD_RETRY_COUNT = 2
     PPT_CLIPBOARD_RETRY_DELAY = 0.08
 
+    def _create_root_window(self):
+        if HAS_TKINTERDND:
+            try:
+                root = TkinterDnD.Tk()
+                self.dnd_available = True
+                return root
+            except Exception as error:
+                self.dnd_init_error = str(error)
+                self.logger.log(f"드래그앤드롭 루트 초기화 실패: {self.dnd_init_error[:120]}")
+        self.dnd_available = False
+        return tk.Tk()
+
     def __init__(self):
         self.logger = Logger()
         self.logger.log("DocumentExtractor v3 초기화 시작")
+        self.dnd_available = False
+        self.dnd_init_error = ""
 
-        self.root = tk.Tk()
+        self.root = self._create_root_window()
         self.root.title("문서 추출 도구 v3")
         self.root.geometry("900x660")
         self.root.resizable(False, False)
@@ -263,6 +285,11 @@ class DocumentExtractorV3:
         self._hwp_detecting = False
 
         self.setup_ui()
+        if self.dnd_available:
+            self._setup_drag_drop()
+        else:
+            reason = self.dnd_init_error or "tkinterdnd2 패키지가 없습니다."
+            self.logger.log(f"드래그앤드롭 비활성화: {reason}")
 
         self.logger.log("DocumentExtractor v3 초기화 완료")
 
@@ -1743,7 +1770,8 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=2)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.ppt_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.ppt_source_entry = ttk.Entry(source_inner, textvariable=self.ppt_source_path, width=45, state="readonly")
+        self.ppt_source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_ppt_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -1803,7 +1831,8 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=2)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.excel_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.excel_source_entry = ttk.Entry(source_inner, textvariable=self.excel_source_path, width=45, state="readonly")
+        self.excel_source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_excel_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -1986,6 +2015,102 @@ class DocumentExtractorV3:
         self._use_direct_file_input(kind, path, label)
         save_var.set(self._default_direct_save_path(path, kind, preferred_ext))
         self.status_text.set(f"{label} 파일 선택됨")
+
+    def _parse_drop_paths(self, data):
+        if not data:
+            return []
+        try:
+            raw_items = self.root.tk.splitlist(data)
+        except Exception:
+            raw_items = [data]
+        paths = []
+        for item in raw_items:
+            path = str(item).strip()
+            if path.startswith("file:///"):
+                path = path[8:]
+            if path:
+                paths.append(os.path.normpath(path))
+        return paths
+
+    def _expand_supported_drop_paths(self, paths):
+        supported = []
+        for raw_path in paths:
+            path = os.path.abspath(raw_path)
+            if os.path.isdir(path):
+                for root_dir, _dirs, files in os.walk(path):
+                    for filename in files:
+                        file_path = os.path.join(root_dir, filename)
+                        if self._batch_file_kind(file_path):
+                            supported.append(file_path)
+            elif os.path.isfile(path) and self._batch_file_kind(path):
+                supported.append(path)
+        return supported
+
+    def _register_drop_target(self, widget, callback):
+        if not HAS_TKINTERDND or widget is None:
+            return
+        try:
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind("<<Drop>>", callback)
+        except Exception as error:
+            self.logger.log(f"드롭 대상 등록 실패: {widget} ({str(error)[:80]})")
+
+    def _setup_drag_drop(self):
+        self._register_drop_target(
+            self.ppt_source_entry,
+            lambda event: self._handle_direct_file_drop(
+                event, "ppt", self.ppt_source_path, self.ppt_save_path, "PPT"
+            ),
+        )
+        self._register_drop_target(
+            self.excel_source_entry,
+            lambda event: self._handle_direct_file_drop(
+                event, "excel", self.excel_source_path, self.excel_save_path, "Excel"
+            ),
+        )
+        self._register_drop_target(
+            self.word_source_entry,
+            lambda event: self._handle_direct_file_drop(
+                event, "word", self.word_source_path, self.word_save_path, "Word"
+            ),
+        )
+        self._register_drop_target(
+            self.notepad_source_entry,
+            lambda event: self._handle_direct_file_drop(
+                event,
+                "text",
+                self.notepad_source_path,
+                self.notepad_save_path,
+                "TXT",
+                ".docx" if self.notepad_save_format.get() == "docx" else ".txt",
+            ),
+        )
+        for widget in (self.batch_tab, self.batch_file_listbox):
+            self._register_drop_target(widget, self._handle_batch_file_drop)
+        self.logger.log("드래그앤드롭 활성화")
+
+    def _handle_direct_file_drop(self, event, kind, source_var, save_var, label, preferred_ext=None):
+        paths = self._parse_drop_paths(getattr(event, "data", ""))
+        files = self._expand_supported_drop_paths(paths)
+        matching_files = [path for path in files if self._batch_file_kind(path) == kind]
+        if not matching_files:
+            self.status_text.set(f"{label} 지원 파일을 드롭해주세요")
+            return
+        selected_path = matching_files[0]
+        self._apply_source_file_selection(kind, source_var, save_var, selected_path, label, preferred_ext)
+        if len(matching_files) > 1:
+            self.status_text.set(f"{label} 파일 1개 선택됨, 나머지는 일괄 변환에 드롭하세요")
+        return "break"
+
+    def _handle_batch_file_drop(self, event):
+        paths = self._parse_drop_paths(getattr(event, "data", ""))
+        added = self._add_batch_paths(paths)
+        if added:
+            self._select_document_view(4, detect=False)
+            self.status_text.set(f"일괄 변환 파일 {added}개 추가됨")
+        else:
+            self.batch_status_text.set("추가할 수 있는 파일이 없습니다.")
+        return "break"
 
     def _set_input_mode(self, kind, mode):
         attr = {
@@ -4235,7 +4360,8 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=2)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.word_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.word_source_entry = ttk.Entry(source_inner, textvariable=self.word_source_path, width=45, state="readonly")
+        self.word_source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_word_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -4707,7 +4833,8 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=5)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.notepad_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.notepad_source_entry = ttk.Entry(source_inner, textvariable=self.notepad_source_path, width=45, state="readonly")
+        self.notepad_source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_notepad_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -4841,12 +4968,7 @@ class DocumentExtractorV3:
     def _add_batch_paths(self, paths):
         added = 0
         seen = {os.path.abspath(path).lower() for path in self.batch_files}
-        for raw_path in paths:
-            path = os.path.abspath(raw_path)
-            if not os.path.isfile(path):
-                continue
-            if not self._batch_file_kind(path):
-                continue
+        for path in self._expand_supported_drop_paths(paths):
             key = path.lower()
             if key in seen:
                 continue
@@ -5459,6 +5581,9 @@ def check_dependencies():
 
     if not HAS_DOCX:
         errors.append("python-docx 패키지 필요 (pip install python-docx)")
+
+    if not HAS_TKINTERDND:
+        errors.append("tkinterdnd2 패키지 필요 (드래그앤드롭용, pip install tkinterdnd2)")
 
     if errors:
         root = tk.Tk()

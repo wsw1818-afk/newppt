@@ -321,6 +321,14 @@
 - 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 단일 EXE 배포본 SHA256 -> `52174E22F4A95E8C3DAD6636691D5BD11CFABBA4B22172201641EF5DA703BE9C`
 
+- 2026-05-18 드래그앤드롭 입력 추가: 개별 PPT/Excel/Word/TXT 파일 선택 칸에 파일 드롭 시 직접 변환 입력으로 설정하고, 일괄 변환 목록에는 파일/폴더 드롭으로 지원 파일을 추가하도록 구현
+- 2026-05-18 `tkinterdnd2` 의존성을 requirements/런타임 배포/ PyInstaller spec에 반영하고, 패키지가 없으면 기존 파일 선택 방식으로 계속 실행되도록 폴백 처리
+- 2026-05-18 macOS 검증에서 Windows 전용 메모장 Win32 검증을 FAIL 대신 SKIP 처리하도록 `scripts/goal_verify_v3.py` 보강
+- 2026-05-18 `python3 -m py_compile ppt_extractor_v3.py scripts/goal_verify_v3.py document_extractor.py pdf_printer.py ppt_extractor.py ppt_extractor_v2.py` -> 성공
+- 2026-05-18 `python3 scripts/goal_verify_v3.py --clean` -> PASS 3, SKIP 6, FAIL 0 (macOS라 Office/Notepad Windows 검증은 SKIP)
+- 2026-05-18 드롭 경로 파싱/폴더 확장 smoke test -> `drop_logic_ok`
+- 2026-05-18 `git diff --check` -> 성공
+
 - 2026-05-15 프로젝트 폴더 분석 완료: 메인 경로는 `ppt_extractor_v3.py`, 빌드는 PyInstaller 단일/폴더형 및 소스 배포로 구성됨. 우선 정리 포인트는 HWP 잔재/문서 정합성, Windows 11 메모장 UI Automation, `PROGRESS.md` 아카이브다.
 
 - 2026-05-15 리뷰 지적 수정: `requirements.txt`에 `lxml` 추가, 직접/일괄 Office 변환을 `DispatchEx` 격리 인스턴스로 변경, `DisplayAlerts` 원복 처리 추가
