@@ -307,6 +307,19 @@
 - 2026-05-15 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 2026-05-15 단일 EXE 배포본 SHA256 -> `5C246F6F0AA2CC1B58FABF105B240CC75301DE49FE901D410F4CDE6E11321CAE`
 
+## 2026-05-18
+- 사용자 로그 분석: Excel 열린 통합문서를 선택했는데 이전에 남아 있던 파일 직접 선택 경로가 우선되어 다른 Excel 파일이 변환되는 흐름을 확인.
+- PPT/Excel/Word/메모장 입력 모드를 `file`/`open`으로 분리하고, 열린 문서 콤보 선택 또는 `다시 감지` 버튼 사용 시 파일 직접 선택 경로를 초기화하도록 수정.
+- 저장 경로 대화상자의 기본 파일명도 현재 입력 모드에 맞게 파일 직접 선택 또는 열린 문서 이름을 사용하도록 정리.
+- Excel 파일 열기 COM 호출에 heartbeat 로그를 추가해 보안/DRM/OneDrive 지연 시 로그가 멈춘 것처럼 보이지 않게 수정.
+- 파일 직접 선택 시 열린 문서 콤보 표시를 비우고, 열린 문서 선택 시 파일 경로 표시를 비워 두 입력 방식이 동시에 선택된 것처럼 보이지 않게 보완.
+- 파일 직접 선택 입력칸은 찾아보기 버튼으로만 바뀌도록 읽기 전용 처리해 수동 입력과 열린 문서 선택이 섞이는 문제를 줄임.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 11, SKIP 1, FAIL 0
+- `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 단일 EXE 배포본 SHA256 -> `52174E22F4A95E8C3DAD6636691D5BD11CFABBA4B22172201641EF5DA703BE9C`
+
 ## Next
 1. 실제 사용자 문서로 Word/메모장 탭 수동 확인
 2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토

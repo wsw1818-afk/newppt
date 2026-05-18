@@ -217,6 +217,7 @@ class DocumentExtractorV3:
         self.ppt_source_path = tk.StringVar(value="")
         self.ppt_list = []
         self.selected_ppt_index = tk.IntVar(value=0)
+        self.ppt_input_mode = "open"
 
         # Excel 상태 변수
         self.excel_doc_name = tk.StringVar(value="감지 중...")
@@ -225,6 +226,7 @@ class DocumentExtractorV3:
         self.excel_source_path = tk.StringVar(value="")
         self.excel_list = []
         self.selected_excel_index = tk.IntVar(value=0)
+        self.excel_input_mode = "open"
 
         # 한글 상태 변수
         self.hwp_doc_name = tk.StringVar(value="감지 중...")
@@ -239,12 +241,14 @@ class DocumentExtractorV3:
         self.word_source_path = tk.StringVar(value="")
         self.word_list = []
         self.selected_word_index = tk.IntVar(value=0)
+        self.word_input_mode = "open"
 
         # 메모장 상태 변수
         self.notepad_doc_name = tk.StringVar(value="감지 중...")
         self.notepad_save_path = tk.StringVar(value="")
         self.notepad_source_path = tk.StringVar(value="")
         self.notepad_list = []
+        self.notepad_input_mode = "open"
 
         # 일괄 변환 상태
         self.batch_files = []
@@ -1700,7 +1704,7 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=2)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.ppt_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Entry(source_inner, textvariable=self.ppt_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_ppt_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -1720,7 +1724,7 @@ class DocumentExtractorV3:
                   font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_ppt,
+        ttk.Button(info_frame, text="다시 감지", command=lambda: self.detect_open_ppt(prefer_open=True),
                    style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
@@ -1760,7 +1764,7 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=2)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.excel_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Entry(source_inner, textvariable=self.excel_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_excel_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -1780,7 +1784,7 @@ class DocumentExtractorV3:
                   font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_excel,
+        ttk.Button(info_frame, text="다시 감지", command=lambda: self.detect_open_excel(prefer_open=True),
                    style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
@@ -1940,8 +1944,64 @@ class DocumentExtractorV3:
         if not path:
             return
         source_var.set(path)
+        self._use_direct_file_input(kind, path, label)
         save_var.set(self._default_direct_save_path(path, kind, preferred_ext))
         self.status_text.set(f"{label} 파일 선택됨")
+
+    def _set_input_mode(self, kind, mode):
+        attr = {
+            "ppt": "ppt_input_mode",
+            "excel": "excel_input_mode",
+            "word": "word_input_mode",
+            "text": "notepad_input_mode",
+        }.get(kind)
+        if attr:
+            setattr(self, attr, mode)
+
+    def _is_direct_file_input_active(self, kind):
+        attr = {
+            "ppt": "ppt_input_mode",
+            "excel": "excel_input_mode",
+            "word": "word_input_mode",
+            "text": "notepad_input_mode",
+        }.get(kind)
+        return bool(attr and getattr(self, attr, "open") == "file")
+
+    def _show_direct_file_input(self, kind, source_path, label):
+        file_name = os.path.basename(source_path) if source_path else f"{label} 파일 선택됨"
+        if kind == "ppt":
+            if hasattr(self, "ppt_combo"):
+                self.ppt_combo.set("")
+            self.selected_ppt_index.set(0)
+            self.ppt_doc_name.set(file_name)
+            self.ppt_slide_count.set("-")
+        elif kind == "excel":
+            if hasattr(self, "excel_combo"):
+                self.excel_combo.set("")
+            self.selected_excel_index.set(0)
+            self.excel_doc_name.set(file_name)
+            self.excel_sheet_count.set("-")
+        elif kind == "word":
+            if hasattr(self, "word_combo"):
+                self.word_combo.set("")
+            self.selected_word_index.set(0)
+            self.word_doc_name.set(file_name)
+            self.word_page_count.set("-")
+        elif kind == "text":
+            if hasattr(self, "notepad_combo"):
+                self.notepad_combo.set("")
+            self.notepad_doc_name.set(file_name)
+
+    def _use_direct_file_input(self, kind, source_path, label):
+        self._set_input_mode(kind, "file")
+        self._show_direct_file_input(kind, source_path, label)
+        self.logger.log(f"{label} 파일 직접 선택 사용: {source_path}")
+
+    def _use_open_document_input(self, kind, source_var, label):
+        self._set_input_mode(kind, "open")
+        if source_var.get().strip():
+            source_var.set("")
+            self.logger.log(f"{label} 열린 문서 선택으로 파일 직접 선택 경로 초기화")
 
     def browse_ppt_source_path(self):
         path = filedialog.askopenfilename(
@@ -2116,7 +2176,11 @@ class DocumentExtractorV3:
         """PPT 저장 경로 선택"""
         self.logger.log("PPT 저장 경로 선택 대화상자 열기")
 
-        doc_name = self.ppt_doc_name.get()
+        direct_source = self.ppt_source_path.get().strip()
+        if direct_source and self._is_direct_file_input_active("ppt"):
+            doc_name = os.path.basename(direct_source)
+        else:
+            doc_name = self.ppt_doc_name.get()
         if doc_name and doc_name != "감지 중..." and doc_name != "열린 PPT 없음":
             src_ext = os.path.splitext(doc_name)[1] or ".pptx"
             default_ext = src_ext if src_ext.lower() in [".pptx", ".ppt", ".pptm"] else ".pptx"
@@ -2135,12 +2199,18 @@ class DocumentExtractorV3:
             self.ppt_save_path.set(path)
             self.logger.log(f"PPT 저장 경로 선택됨: {path}")
 
-    def detect_open_ppt(self):
+    def detect_open_ppt(self, prefer_open=False):
         """열려있는 PPT 감지"""
+        if prefer_open:
+            self._use_open_document_input("ppt", self.ppt_source_path, "PPT")
         self.logger.log("PPT 감지 시작")
-        self.status_text.set("PPT 감지 중...")
-        self.ppt_doc_name.set("감지 중...")
-        self.ppt_slide_count.set("-")
+        if self._is_direct_file_input_active("ppt"):
+            self.status_text.set("PPT 감지 중... (파일 선택 유지)")
+            self._show_direct_file_input("ppt", self.ppt_source_path.get().strip(), "PPT")
+        else:
+            self.status_text.set("PPT 감지 중...")
+            self.ppt_doc_name.set("감지 중...")
+            self.ppt_slide_count.set("-")
 
         thread = threading.Thread(target=self._detect_ppt)
         thread.daemon = True
@@ -2175,6 +2245,10 @@ class DocumentExtractorV3:
 
                 def update_combo():
                     self.ppt_combo['values'] = ppt_names
+                    if self._is_direct_file_input_active("ppt"):
+                        self._show_direct_file_input("ppt", self.ppt_source_path.get().strip(), "PPT")
+                        self.status_text.set(f"PPT {len(ppt_names)}개 감지됨 (파일 선택 유지)")
+                        return
                     if ppt_names:
                         self.ppt_combo.current(0)
                         self.selected_ppt_index.set(1)
@@ -2189,6 +2263,10 @@ class DocumentExtractorV3:
                 def clear_combo():
                     self.ppt_combo.set("")
                     self.ppt_combo['values'] = []
+                    if self._is_direct_file_input_active("ppt"):
+                        self._show_direct_file_input("ppt", self.ppt_source_path.get().strip(), "PPT")
+                        self.status_text.set("PPT 파일 선택됨")
+                        return
                     self.ppt_doc_name.set("열린 PPT 없음")
                     self.ppt_slide_count.set("-")
                     self.status_text.set("PPT를 먼저 열어주세요")
@@ -2204,6 +2282,10 @@ class DocumentExtractorV3:
             err_msg = str(e)[:30]
             def show_error():
                 self.ppt_combo.set("")
+                if self._is_direct_file_input_active("ppt"):
+                    self._show_direct_file_input("ppt", self.ppt_source_path.get().strip(), "PPT")
+                    self.status_text.set("PPT 파일 선택됨")
+                    return
                 self.ppt_doc_name.set("열린 PPT 없음")
                 self.ppt_slide_count.set("-")
                 if expected_not_running:
@@ -2218,6 +2300,7 @@ class DocumentExtractorV3:
         """PPT 콤보박스 선택 이벤트"""
         selected_idx = self.ppt_combo.current()
         if selected_idx >= 0 and selected_idx < len(self.ppt_list):
+            self._use_open_document_input("ppt", self.ppt_source_path, "PPT")
             name, slide_count, ppt_index = self.ppt_list[selected_idx]
             self.selected_ppt_index.set(ppt_index)
             self.ppt_doc_name.set(name)
@@ -2234,7 +2317,7 @@ class DocumentExtractorV3:
         self.logger.log(f"PPT 추출 설정: mode={mode}, index={ppt_index}, save_path={save_path}")
 
         direct_source = self.ppt_source_path.get().strip()
-        if direct_source:
+        if direct_source and self._is_direct_file_input_active("ppt"):
             if self._start_direct_file_conversion(
                 "ppt", direct_source, save_path, self.ppt_save_path, self.ppt_extract_button, "PPT"
             ):
@@ -2431,7 +2514,11 @@ class DocumentExtractorV3:
         """Excel 저장 경로 선택"""
         self.logger.log("Excel 저장 경로 선택")
 
-        doc_name = self.excel_doc_name.get()
+        direct_source = self.excel_source_path.get().strip()
+        if direct_source and self._is_direct_file_input_active("excel"):
+            doc_name = os.path.basename(direct_source)
+        else:
+            doc_name = self.excel_doc_name.get()
         if doc_name and doc_name != "감지 중..." and doc_name != "열린 Excel 없음":
             src_ext = os.path.splitext(doc_name)[1] or ".xlsx"
             default_ext = src_ext if src_ext.lower() in [".xlsx", ".xlsm", ".xls", ".xlsb"] else ".xlsx"
@@ -2450,12 +2537,18 @@ class DocumentExtractorV3:
             self.excel_save_path.set(path)
             self.logger.log(f"Excel 저장 경로: {path}")
 
-    def detect_open_excel(self):
+    def detect_open_excel(self, prefer_open=False):
         """열려있는 Excel 감지"""
+        if prefer_open:
+            self._use_open_document_input("excel", self.excel_source_path, "Excel")
         self.logger.log("Excel 감지 시작")
-        self.status_text.set("Excel 감지 중...")
-        self.excel_doc_name.set("감지 중...")
-        self.excel_sheet_count.set("-")
+        if self._is_direct_file_input_active("excel"):
+            self.status_text.set("Excel 감지 중... (파일 선택 유지)")
+            self._show_direct_file_input("excel", self.excel_source_path.get().strip(), "Excel")
+        else:
+            self.status_text.set("Excel 감지 중...")
+            self.excel_doc_name.set("감지 중...")
+            self.excel_sheet_count.set("-")
 
         thread = threading.Thread(target=self._detect_excel)
         thread.daemon = True
@@ -2489,6 +2582,10 @@ class DocumentExtractorV3:
 
                 def update_combo():
                     self.excel_combo['values'] = excel_names
+                    if self._is_direct_file_input_active("excel"):
+                        self._show_direct_file_input("excel", self.excel_source_path.get().strip(), "Excel")
+                        self.status_text.set(f"Excel {len(excel_names)}개 감지됨 (파일 선택 유지)")
+                        return
                     if excel_names:
                         self.excel_combo.current(0)
                         self.selected_excel_index.set(1)
@@ -2502,6 +2599,10 @@ class DocumentExtractorV3:
                 def clear_combo():
                     self.excel_combo.set("")
                     self.excel_combo['values'] = []
+                    if self._is_direct_file_input_active("excel"):
+                        self._show_direct_file_input("excel", self.excel_source_path.get().strip(), "Excel")
+                        self.status_text.set("Excel 파일 선택됨")
+                        return
                     self.excel_doc_name.set("열린 Excel 없음")
                     self.excel_sheet_count.set("-")
                     self.status_text.set("Excel을 먼저 열어주세요")
@@ -2516,6 +2617,10 @@ class DocumentExtractorV3:
             self.excel_list = []
             def show_error():
                 self.excel_combo.set("")
+                if self._is_direct_file_input_active("excel"):
+                    self._show_direct_file_input("excel", self.excel_source_path.get().strip(), "Excel")
+                    self.status_text.set("Excel 파일 선택됨")
+                    return
                 self.excel_doc_name.set("열린 Excel 없음")
                 self.excel_sheet_count.set("-")
                 if expected_not_running:
@@ -2530,6 +2635,7 @@ class DocumentExtractorV3:
         """Excel 콤보박스 선택 이벤트"""
         selected_idx = self.excel_combo.current()
         if selected_idx >= 0 and selected_idx < len(self.excel_list):
+            self._use_open_document_input("excel", self.excel_source_path, "Excel")
             name, sheet_count, excel_index = self.excel_list[selected_idx]
             self.selected_excel_index.set(excel_index)
             self.excel_doc_name.set(name)
@@ -2552,7 +2658,7 @@ class DocumentExtractorV3:
         excel_index = self.selected_excel_index.get()
 
         direct_source = self.excel_source_path.get().strip()
-        if direct_source:
+        if direct_source and self._is_direct_file_input_active("excel"):
             if self._start_direct_file_conversion(
                 "excel", direct_source, save_path, self.excel_save_path, self.excel_extract_button, "Excel"
             ):
@@ -4091,7 +4197,7 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=2)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.word_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Entry(source_inner, textvariable=self.word_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_word_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -4111,7 +4217,7 @@ class DocumentExtractorV3:
                   font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_word,
+        ttk.Button(info_frame, text="다시 감지", command=lambda: self.detect_open_word(prefer_open=True),
                    style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
@@ -4143,7 +4249,11 @@ class DocumentExtractorV3:
         """Word 저장 경로 선택"""
         self.logger.log("Word 저장 경로 선택")
 
-        doc_name = self.word_doc_name.get()
+        direct_source = self.word_source_path.get().strip()
+        if direct_source and self._is_direct_file_input_active("word"):
+            doc_name = os.path.basename(direct_source)
+        else:
+            doc_name = self.word_doc_name.get()
         if doc_name and doc_name != "감지 중..." and doc_name != "열린 Word 없음":
             src_ext = os.path.splitext(doc_name)[1] or ".docx"
             default_ext = src_ext if src_ext.lower() in [".docx", ".docm", ".doc", ".rtf"] else ".docx"
@@ -4162,12 +4272,18 @@ class DocumentExtractorV3:
             self.word_save_path.set(path)
             self.logger.log(f"Word 저장 경로: {path}")
 
-    def detect_open_word(self):
+    def detect_open_word(self, prefer_open=False):
         """열려있는 Word 감지"""
+        if prefer_open:
+            self._use_open_document_input("word", self.word_source_path, "Word")
         self.logger.log("Word 감지 시작")
-        self.status_text.set("Word 감지 중...")
-        self.word_doc_name.set("감지 중...")
-        self.word_page_count.set("-")
+        if self._is_direct_file_input_active("word"):
+            self.status_text.set("Word 감지 중... (파일 선택 유지)")
+            self._show_direct_file_input("word", self.word_source_path.get().strip(), "Word")
+        else:
+            self.status_text.set("Word 감지 중...")
+            self.word_doc_name.set("감지 중...")
+            self.word_page_count.set("-")
 
         thread = threading.Thread(target=self._detect_word)
         thread.daemon = True
@@ -4206,6 +4322,10 @@ class DocumentExtractorV3:
 
                 def update_combo():
                     self.word_combo['values'] = word_names
+                    if self._is_direct_file_input_active("word"):
+                        self._show_direct_file_input("word", self.word_source_path.get().strip(), "Word")
+                        self.status_text.set(f"Word {len(word_names)}개 감지됨 (파일 선택 유지)")
+                        return
                     if word_names:
                         self.word_combo.current(0)
                         self.selected_word_index.set(1)
@@ -4219,6 +4339,10 @@ class DocumentExtractorV3:
                 def clear_combo():
                     self.word_combo.set("")
                     self.word_combo['values'] = []
+                    if self._is_direct_file_input_active("word"):
+                        self._show_direct_file_input("word", self.word_source_path.get().strip(), "Word")
+                        self.status_text.set("Word 파일 선택됨")
+                        return
                     self.word_doc_name.set("열린 Word 없음")
                     self.word_page_count.set("-")
                     self.status_text.set("Word를 먼저 열어주세요")
@@ -4234,6 +4358,10 @@ class DocumentExtractorV3:
             err_msg = str(e)[:30]
             def show_error():
                 self.word_combo.set("")
+                if self._is_direct_file_input_active("word"):
+                    self._show_direct_file_input("word", self.word_source_path.get().strip(), "Word")
+                    self.status_text.set("Word 파일 선택됨")
+                    return
                 self.word_doc_name.set("열린 Word 없음")
                 self.word_page_count.set("-")
                 if expected_not_running:
@@ -4248,6 +4376,7 @@ class DocumentExtractorV3:
         """Word 콤보박스 선택 이벤트"""
         selected_idx = self.word_combo.current()
         if selected_idx >= 0 and selected_idx < len(self.word_list):
+            self._use_open_document_input("word", self.word_source_path, "Word")
             name, page_count, word_index = self.word_list[selected_idx]
             self.selected_word_index.set(word_index)
             self.word_doc_name.set(name)
@@ -4264,7 +4393,7 @@ class DocumentExtractorV3:
         word_index = self.selected_word_index.get()
 
         direct_source = self.word_source_path.get().strip()
-        if direct_source:
+        if direct_source and self._is_direct_file_input_active("word"):
             if self._start_direct_file_conversion(
                 "word", direct_source, save_path, self.word_save_path, self.word_extract_button, "Word"
             ):
@@ -4540,7 +4669,7 @@ class DocumentExtractorV3:
         source_inner = ttk.Frame(info_frame, style="Card.TFrame")
         source_inner.pack(fill=tk.X, pady=5)
         ttk.Label(source_inner, text="파일 선택:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(source_inner, textvariable=self.notepad_source_path, width=45).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Entry(source_inner, textvariable=self.notepad_source_path, width=45, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(source_inner, text="찾아보기", command=self.browse_notepad_source_path,
                    style="Secondary.TButton").pack(side=tk.LEFT)
 
@@ -4553,7 +4682,7 @@ class DocumentExtractorV3:
         self.notepad_combo.bind("<<ComboboxSelected>>", self.on_notepad_selected)
 
         # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_notepad,
+        ttk.Button(info_frame, text="다시 감지", command=lambda: self.detect_open_notepad(prefer_open=True),
                    style="Secondary.TButton").pack(pady=(10, 0))
 
         # 저장 경로 프레임
@@ -4828,7 +4957,10 @@ class DocumentExtractorV3:
     def _batch_convert_excel_file(self, excel_app, source_path, target_path):
         source_wb = None
         try:
-            source_wb = excel_app.Workbooks.Open(source_path, ReadOnly=True)
+            source_wb = self._run_with_heartbeat(
+                "Excel 파일 열기",
+                lambda: excel_app.Workbooks.Open(source_path, ReadOnly=True),
+            )
             self.logger.log(f"  Excel 열기 완료: {source_wb.Name}")
             try:
                 self._save_native_copy(source_wb, target_path, "Excel 일괄")
@@ -4987,7 +5119,11 @@ class DocumentExtractorV3:
         self.logger.log("메모장 저장 경로 선택")
         save_format = self.notepad_save_format.get()
 
-        doc_name = self.notepad_doc_name.get()
+        direct_source = self.notepad_source_path.get().strip()
+        if direct_source and self._is_direct_file_input_active("text"):
+            doc_name = os.path.basename(direct_source)
+        else:
+            doc_name = self.notepad_doc_name.get()
         if doc_name and doc_name != "감지 중..." and doc_name != "열린 메모장 없음":
             base_name = os.path.splitext(doc_name)[0] + "_복사본"
         else:
@@ -5010,11 +5146,17 @@ class DocumentExtractorV3:
             self.notepad_save_path.set(path)
             self.logger.log(f"메모장 저장 경로: {path}")
 
-    def detect_open_notepad(self):
+    def detect_open_notepad(self, prefer_open=False):
         """열려있는 메모장 감지"""
+        if prefer_open:
+            self._use_open_document_input("text", self.notepad_source_path, "메모장")
         self.logger.log("메모장 감지 시작")
-        self.status_text.set("메모장 감지 중...")
-        self.notepad_doc_name.set("감지 중...")
+        if self._is_direct_file_input_active("text"):
+            self.status_text.set("메모장 감지 중... (파일 선택 유지)")
+            self._show_direct_file_input("text", self.notepad_source_path.get().strip(), "TXT")
+        else:
+            self.status_text.set("메모장 감지 중...")
+            self.notepad_doc_name.set("감지 중...")
 
         thread = threading.Thread(target=self._detect_notepad)
         thread.daemon = True
@@ -5053,6 +5195,10 @@ class DocumentExtractorV3:
 
                 def update_combo():
                     self.notepad_combo['values'] = names
+                    if self._is_direct_file_input_active("text"):
+                        self._show_direct_file_input("text", self.notepad_source_path.get().strip(), "TXT")
+                        self.status_text.set(f"메모장 {len(names)}개 감지됨 (파일 선택 유지)")
+                        return
                     self.notepad_combo.current(0)
                     self.notepad_doc_name.set(names[0])
                     self.status_text.set(f"메모장 {len(names)}개 감지됨")
@@ -5063,6 +5209,10 @@ class DocumentExtractorV3:
                 def clear_combo():
                     self.notepad_combo.set("")
                     self.notepad_combo['values'] = []
+                    if self._is_direct_file_input_active("text"):
+                        self._show_direct_file_input("text", self.notepad_source_path.get().strip(), "TXT")
+                        self.status_text.set("TXT 파일 선택됨")
+                        return
                     self.notepad_doc_name.set("열린 메모장 없음")
                     self.status_text.set("메모장을 먼저 열어주세요")
                 self.root.after(0, clear_combo)
@@ -5073,6 +5223,10 @@ class DocumentExtractorV3:
             err_msg = str(e)[:30]
             def show_error():
                 self.notepad_combo.set("")
+                if self._is_direct_file_input_active("text"):
+                    self._show_direct_file_input("text", self.notepad_source_path.get().strip(), "TXT")
+                    self.status_text.set("TXT 파일 선택됨")
+                    return
                 self.notepad_doc_name.set("열린 메모장 없음")
                 self.status_text.set(f"메모장 감지 실패: {err_msg}")
             self.root.after(0, show_error)
@@ -5081,6 +5235,7 @@ class DocumentExtractorV3:
         """메모장 콤보박스 선택 이벤트"""
         selected_idx = self.notepad_combo.current()
         if selected_idx >= 0 and selected_idx < len(self.notepad_list):
+            self._use_open_document_input("text", self.notepad_source_path, "메모장")
             hwnd, title = self.notepad_list[selected_idx]
             self.notepad_doc_name.set(title if title else "제목 없음")
             self.logger.log(f"메모장 선택: {title} (hwnd={hwnd})")
@@ -5094,7 +5249,7 @@ class DocumentExtractorV3:
         selected_idx = self.notepad_combo.current()
 
         direct_source = self.notepad_source_path.get().strip()
-        if direct_source:
+        if direct_source and self._is_direct_file_input_active("text"):
             if not save_path:
                 preferred_ext = ".docx" if save_format == "docx" else ".txt"
                 save_path = self._default_direct_save_path(direct_source, "text", preferred_ext)
