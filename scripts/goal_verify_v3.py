@@ -5,7 +5,6 @@ This script creates small sample documents and verifies the preservation paths
 that matter most for the app:
 - PPT/Excel native copy keeps shapes/images/sizing.
 - Word safe copy keeps the original file unchanged.
-- HWP FileSaveAs_S creates a non-empty HWP file.
 - Notepad legacy Win32 text reading still works when that UI is available.
 
 Missing desktop apps are reported as SKIP, not FAIL.
@@ -822,9 +821,6 @@ def main() -> int:
         ("word_safe_copy", lambda: check_word_safe_copy(out_dir)),
         ("word_openxml_copy", lambda: check_word_openxml_copy(out_dir)),
         ("word_xml_text_sanitizer", lambda: check_word_xml_text_sanitizer(out_dir)),
-        ("hwp_getobject_no_spawn", check_hwp_getobject_no_spawn),
-        ("hwp_action_save", lambda: check_hwp_action_save(out_dir)),
-        ("hwp_window_save_fallback", lambda: check_hwp_window_save_fallback(out_dir)),
         ("notepad_legacy_read", lambda: check_notepad_legacy_read(out_dir)),
     ]
 

@@ -535,6 +535,45 @@ class DocumentExtractorV3:
 
         raise Exception(f"{display_name}에 연결할 수 없습니다. {display_name}를 먼저 실행해주세요.")
 
+    def _create_isolated_com_app(self, prog_id, display_name):
+        """파일 직접/일괄 변환용 Office 인스턴스를 사용자 작업과 분리해서 만든다."""
+        try:
+            app = win32com.client.DispatchEx(prog_id)
+            self.logger.log(f"{display_name} DispatchEx 격리 인스턴스 생성 성공")
+            if prog_id == "PowerPoint.Application":
+                try:
+                    app.Visible = True
+                    self.logger.log("PowerPoint 격리 인스턴스 표시 상태 설정")
+                except Exception as visible_error:
+                    self.logger.log(f"PowerPoint 표시 상태 설정 실패: {str(visible_error)[:60]}")
+            return app, True
+        except Exception as exc:
+            self.logger.log(f"{display_name} DispatchEx 격리 인스턴스 생성 실패: {str(exc)[:80]}")
+            raise Exception(
+                f"{display_name} 변환용 격리 인스턴스를 만들 수 없습니다. "
+                f"{display_name} 설치/보안 정책을 확인해 주세요."
+            ) from exc
+
+    def _set_office_display_alerts(self, app, value, label):
+        """자동 변환 중 바꾼 DisplayAlerts 값을 나중에 되돌릴 수 있게 보관한다."""
+        try:
+            original = app.DisplayAlerts
+            app.DisplayAlerts = value
+            self.logger.log(f"{label} DisplayAlerts 변경: {original} -> {value}")
+            return original
+        except Exception as exc:
+            self.logger.log(f"{label} DisplayAlerts 변경 실패: {str(exc)[:60]}")
+            return None
+
+    def _restore_office_display_alerts(self, app, original, label):
+        if app is None or original is None:
+            return
+        try:
+            app.DisplayAlerts = original
+            self.logger.log(f"{label} DisplayAlerts 원복: {original}")
+        except Exception as exc:
+            self.logger.log(f"{label} DisplayAlerts 원복 실패: {str(exc)[:60]}")
+
     def _is_expected_app_not_running(self, exc, display_name):
         """사용자가 아직 앱을 열지 않은 정상 감지 실패인지 판단한다."""
         message = str(exc)
@@ -2101,28 +2140,27 @@ class DocumentExtractorV3:
 
         app = None
         created = False
+        original_alerts = None
+        alert_label = None
         pythoncom.CoInitialize()
         try:
             if kind == "ppt":
-                app, created = self._get_ppt_app()
-                try:
-                    app.DisplayAlerts = 1
-                except Exception:
-                    pass
+                app, created = self._create_isolated_com_app("PowerPoint.Application", "PowerPoint")
+                alert_label = "PowerPoint 직접 변환"
+                original_alerts = self._set_office_display_alerts(app, 1, alert_label)
                 self._batch_convert_ppt_file(app, source_path, save_path, skip_direct=True)
             elif kind == "excel":
-                app, created = self._get_excel_app()
-                try:
-                    app.DisplayAlerts = False
-                except Exception:
-                    pass
+                app, created = self._create_isolated_com_app("Excel.Application", "Excel")
+                alert_label = "Excel 직접 변환"
+                original_alerts = self._set_office_display_alerts(app, False, alert_label)
                 self._batch_convert_excel_file(app, source_path, save_path)
             elif kind == "word":
-                app, created = self._get_word_app()
+                app, created = self._create_isolated_com_app("Word.Application", "Word")
                 self._batch_convert_word_file(app, source_path, save_path)
             else:
                 raise Exception(f"지원하지 않는 직접 변환 형식입니다: {kind}")
         finally:
+            self._restore_office_display_alerts(app, original_alerts, alert_label)
             if created and app is not None:
                 try:
                     app.Quit()
@@ -5025,6 +5063,7 @@ class DocumentExtractorV3:
         self.logger.log("=== 일괄 변환 시작 ===")
         extract_start = time.perf_counter()
         apps = {}
+        alert_states = {}
         successes = []
         failures = []
         if HAS_WIN32COM:
@@ -5059,25 +5098,36 @@ class DocumentExtractorV3:
                             )
                         if not HAS_WIN32COM:
                             raise Exception("PPT 내부 복원에는 pywin32/win32com이 필요합니다.")
-                        ppt_app = self._get_or_create_batch_app(apps, "ppt", self._get_ppt_app, "PowerPoint")
-                        try:
-                            ppt_app.DisplayAlerts = 1
-                        except Exception:
-                            pass
+                        ppt_app = self._get_or_create_batch_app(
+                            apps,
+                            "ppt",
+                            lambda: self._create_isolated_com_app("PowerPoint.Application", "PowerPoint"),
+                            "PowerPoint",
+                        )
+                        if "ppt" not in alert_states:
+                            alert_states["ppt"] = self._set_office_display_alerts(ppt_app, 1, "PowerPoint 일괄")
                         self._batch_convert_ppt_file(ppt_app, source_path, target_path, skip_direct=True)
                     elif kind == "excel":
                         if not HAS_WIN32COM:
                             raise Exception("Excel 일괄 변환에는 pywin32/win32com이 필요합니다.")
-                        excel_app = self._get_or_create_batch_app(apps, "excel", self._get_excel_app, "Excel")
-                        try:
-                            excel_app.DisplayAlerts = False
-                        except Exception:
-                            pass
+                        excel_app = self._get_or_create_batch_app(
+                            apps,
+                            "excel",
+                            lambda: self._create_isolated_com_app("Excel.Application", "Excel"),
+                            "Excel",
+                        )
+                        if "excel" not in alert_states:
+                            alert_states["excel"] = self._set_office_display_alerts(excel_app, False, "Excel 일괄")
                         self._batch_convert_excel_file(excel_app, source_path, target_path)
                     elif kind == "word":
                         if not HAS_WIN32COM:
                             raise Exception("Word 일괄 변환에는 pywin32/win32com이 필요합니다.")
-                        word_app = self._get_or_create_batch_app(apps, "word", self._get_word_app, "Word")
+                        word_app = self._get_or_create_batch_app(
+                            apps,
+                            "word",
+                            lambda: self._create_isolated_com_app("Word.Application", "Word"),
+                            "Word",
+                        )
                         self._batch_convert_word_file(word_app, source_path, target_path)
                     elif kind == "text":
                         self._batch_convert_text_file(source_path, target_path)
@@ -5101,7 +5151,8 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.status_text.set(f"일괄 변환 오류: {str(error)[:50]}"))
             self.root.after(0, lambda: messagebox.showerror("오류", f"일괄 변환 중 오류:\n{str(error)}"))
         finally:
-            for _key, (app, created) in apps.items():
+            for key, (app, created) in apps.items():
+                self._restore_office_display_alerts(app, alert_states.get(key), f"{key} 일괄")
                 if created:
                     try:
                         app.Quit()

@@ -3,9 +3,11 @@
 ## Dashboard
 - Progress: 100%
 - Risk: 낮음
-- Last updated: 2026-05-15
+- Last updated: 2026-05-18
 
 ## Latest Build
+- 2026-05-18 KST: synced other-PC update `517833e` after input mode separation for file/open document selection.
+- Onefile SHA256: `52174E22F4A95E8C3DAD6636691D5BD11CFABBA4B22172201641EF5DA703BE9C`
 - 2026-05-15 17:10 KST: rebuilt onefile and folder EXE after HWP dialog path normalization.
 - Onefile SHA256: `B1931432F693DFF2D1667877813B2C02955D05DA65E244F8AF81D189C532515C`
 - Folder SHA256: `39A9855F9204EEC2C6BD5FCB2478FAC1AC81CF3024433A78E6F1360889856214`
@@ -244,7 +246,7 @@
 - 2026-05-15 진단 파일을 `D:\OneDrive\코드작업\결과물\newppt`에 복사 완료
 
 ## Open Issues
-- 사용자 실제 문서 기준의 HWP/Word/메모장 수동 검증은 아직 필요하다.
+- 사용자 실제 문서 기준의 Word/메모장 수동 검증은 아직 필요하다.
 - Word 원본 파일 복사는 저장된 문서와 동일 확장자일 때만 안전 경로를 탄다. 기본값에서는 저장 안 된 문서나 확장자 변환을 텍스트 재구성으로 자동 하락시키지 않는다.
 - Excel 재구성 모드의 도형/이미지 위치는 TopLeftCell 기준 보존이며, 셀 내부 픽셀 오프셋은 근사치다.
 - PPT `_화면그대로.pptx` 추가본은 시각 보존용이라 각 슬라이드가 이미지로 들어간다. 현재 기본 UI에서는 텍스트 이미지화를 막기 위해 직접 선택 경로를 제거했다.
@@ -257,7 +259,6 @@
 - 회사 보안 PC에서는 먼저 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_folder\DocumentExtractor_v3.exe`를 실행한다. 폴더 내부 파일을 분리하면 실행이 깨질 수 있다.
 - 폴더형 EXE도 차단되면 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_source\run_from_source.bat`를 사용한다. 이 방식은 대상 PC에 Python 3와 런타임 패키지가 필요하다.
 - 회사망에서 `pip install`이 차단되면 소스 실행 배포본도 IT 보안팀의 Python 패키지 설치/내부 저장소 설정이 필요하다.
-- HWP는 실제 사용자 문서 기준 다중 창/다중 문서 선택 검증이 아직 필요하다. COM 연결이 특정 창을 정확히 지정하지 못하는 환경에서는 사용자가 대상 문서를 활성화한 뒤 추출해야 한다.
 - Windows 11 새 메모장이 WinUI 전용 텍스트 컨트롤만 노출하면 Win32 방식으로 자동 추출할 수 없다. 현재 검증 환경에서도 Notepad 자동 검증은 SKIP 상태다.
 - WordOpenXML 복원은 `.docx` 대상으로 검증했다. `.docm` 매크로, OLE 임베딩, 특수 보안 플러그인 개체는 추가 실문서 검증이 필요하다.
 
@@ -320,10 +321,24 @@
 - 최신 EXE를 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 단일 EXE 배포본 SHA256 -> `52174E22F4A95E8C3DAD6636691D5BD11CFABBA4B22172201641EF5DA703BE9C`
 
+- 2026-05-15 프로젝트 폴더 분석 완료: 메인 경로는 `ppt_extractor_v3.py`, 빌드는 PyInstaller 단일/폴더형 및 소스 배포로 구성됨. 우선 정리 포인트는 HWP 잔재/문서 정합성, Windows 11 메모장 UI Automation, `PROGRESS.md` 아카이브다.
+
+- 2026-05-15 리뷰 지적 수정: `requirements.txt`에 `lxml` 추가, 직접/일괄 Office 변환을 `DispatchEx` 격리 인스턴스로 변경, `DisplayAlerts` 원복 처리 추가
+- 2026-05-15 HWP는 현재 UI 제외 범위에 맞춰 `scripts\goal_verify_v3.py`의 활성 검증 목록에서 제거하고, 사용자 설명서/보안 PC 안내를 HWP 제외 안내로 갱신
+- 2026-05-15 `python3 -m py_compile ppt_extractor_v3.py scripts/goal_verify_v3.py document_extractor.py pdf_printer.py ppt_extractor.py ppt_extractor_v2.py` -> 성공
+- 2026-05-15 `git diff --check` -> 성공
+
+- 2026-05-16 리뷰 추가 반영: PowerPoint 격리 인스턴스를 표시 상태로 설정해 클립보드 슬라이드 패키지 복원 안정성 보강
+- 2026-05-16 `build_security_pc.bat`도 `requirements.txt` 설치 후 빌드하도록 변경해 `lxml` 누락 빌드 방지
+- 2026-05-16 `python3 -m py_compile ppt_extractor_v3.py scripts/goal_verify_v3.py document_extractor.py pdf_printer.py ppt_extractor.py ppt_extractor_v2.py` -> 성공
+- 2026-05-16 `git diff --check` -> 성공
+- 2026-05-16 결과물 폴더(`/Volumes/SSD/OneDrive/코드작업/결과물/newppt`)에 최신 소스 실행 배포본과 안내/빌드 파일 복사 완료
+- 2026-05-16 Windows EXE 빌드는 현재 macOS 세션(Darwin arm64, Windows `py`/PyInstaller 없음)에서 수행 불가. 기존 결과물 EXE 해시 유지: onefile `5C246F6F0AA2CC1B58FABF105B240CC75301DE49FE901D410F4CDE6E11321CAE`, folder `39A9855F9204EEC2C6BD5FCB2478FAC1AC81CF3024433A78E6F1360889856214`
+
 ## Next
-1. 실제 사용자 문서로 Word/메모장 탭 수동 확인
-2. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토
-3. 회사 보안 PC에서 폴더형 배포본 실행 여부와 `DocExtractor_Startup_Error_*.txt` 생성 여부 확인
+1. Windows 환경에서 `build_security_pc.bat` 실행 후 최신 EXE/폴더형 EXE를 결과물 폴더에 교체
+2. 실제 사용자 문서로 Word/메모장 탭 수동 확인
+3. Windows 11 새 메모장 지원 강화를 위해 UI Automation 경로 검토
 
 ---
 ## Archive Rule

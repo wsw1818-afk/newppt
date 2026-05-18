@@ -5,6 +5,11 @@ setlocal
 echo DocumentExtractor v3 - security PC builds
 echo.
 
+echo Installing packages from requirements.txt...
+py -m pip install -r requirements.txt
+if errorlevel 1 goto :error
+
+echo.
 echo Building one-file EXE without UPX...
 py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec
 if errorlevel 1 goto :error

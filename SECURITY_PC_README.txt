@@ -14,4 +14,4 @@ DocumentExtractor v3 - 회사 보안 PC 실행 안내
 주의:
 - 이 방식은 PyInstaller EXE를 사용하지 않으므로 EXE 차단을 우회하는 데 도움이 됩니다.
 - 그래도 Python 실행 자체가 차단되면 IT 보안 예외/허용 정책이 필요합니다.
-- Word/PPT/Excel/HWP 문서는 먼저 해당 프로그램에서 열어 둔 상태로 사용하세요.
+- Word/PPT/Excel 문서는 먼저 해당 프로그램에서 열어 둔 상태로 사용할 수 있습니다. HWP는 회사 DRM 환경에서 일반 파일 변환이 불가해 제외되었습니다.

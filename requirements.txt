@@ -3,4 +3,5 @@ python-pptx
 openpyxl
 python-docx
 Pillow>=8.0.0
+lxml
 pyinstaller
