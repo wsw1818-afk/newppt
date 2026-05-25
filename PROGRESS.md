@@ -343,6 +343,41 @@
 - 2026-05-16 결과물 폴더(`/Volumes/SSD/OneDrive/코드작업/결과물/newppt`)에 최신 소스 실행 배포본과 안내/빌드 파일 복사 완료
 - 2026-05-16 Windows EXE 빌드는 현재 macOS 세션(Darwin arm64, Windows `py`/PyInstaller 없음)에서 수행 불가. 기존 결과물 EXE 해시 유지: onefile `5C246F6F0AA2CC1B58FABF105B240CC75301DE49FE901D410F4CDE6E11321CAE`, folder `39A9855F9204EEC2C6BD5FCB2478FAC1AC81CF3024433A78E6F1360889856214`
 
+## 2026-05-19
+- 사용자 로그 분석: 일괄 변환 65.38초 중 첫 Excel `Workbooks.Open` 단계가 56초가량 소요되어 병목이 Excel 파일 열기/보안 검사 구간에 있음을 확인.
+- Excel/Word 직접 파일 변환 및 일괄 변환에서 정상 OpenXML 파일은 Office COM을 열기 전에 검증 복사하도록 개선해 정상 파일은 Excel/Word 시작 비용을 건너뛰도록 수정.
+- DRM/SCDS 등 직접 검증 복사가 실패하는 파일만 Office 내부 복원 경로로 전환하도록 로그를 분리.
+- Excel 내부 복원이 필요한 경우 `UpdateLinks=0`, `ReadOnly=True`, `AddToMru=False`, `Notify=False`로 열고 이벤트/화면갱신/링크 업데이트/매크로 자동 실행을 끄는 옵션을 적용.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 9, SKIP 0, FAIL 0
+- `git diff --check` -> 성공
+- `build_security_pc.bat` -> 성공, 결과물 폴더 EXE 교체 완료
+- 단일 EXE SHA256 -> `9BFDEF98039A98A1662324B8E2F3EE436E391435A83C60C8949FBB16F3AFBE36`
+- 폴더형 EXE SHA256 -> `5987D45AFA4435EC1653C84809E5347D16FFB986825F2048E62ADB63C9D11369`
+- 추가 병목 개선: 정상 Office 파일 직접 복사 경로에서는 ZIP 전체 `testzip()` 검사를 생략하고 필수 OpenXML 항목만 확인하도록 변경. 생성/복원된 임시 파일은 기존처럼 깊은 검사를 유지.
+- 직접 복사 시 중간 stage 파일 검증을 제거하고 최종 파일만 경량 검증하도록 줄여 큰 Excel/PPT/Word 파일의 반복 읽기 비용을 완화.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 9, SKIP 0, FAIL 0
+- `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 단일 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 단일 EXE SHA256 -> `542DCD94270A72412B66AC52E2187DDCA53CF5E95190BB94B388AC9D7F23D44A`
+- 추가 검토 반영: 직접 복사 경로는 `copy2` 대신 파일 내용만 복사하는 `copyfile`을 사용하고, 결과 검증은 원본/대상 크기와 헤더 비교로 줄여 메타데이터 복사와 ZIP 재열기 비용을 제거.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 9, SKIP 0, FAIL 0
+- `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 단일 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 단일 EXE SHA256 -> `FB89456840699B6256D53CE7529A474825894D2B85616A57F89F6C4FBC17AFFC`
+
+## 2026-05-25
+- 리뷰 지적 반영: Excel 직접/일괄 변환에서 빠른 직접 복사를 이미 시도한 뒤 내부 복원 경로로 넘어갈 때 `_batch_convert_excel_file()`의 중복 직접 복사 검증을 건너뛰도록 `skip_direct` 옵션을 추가.
+- 직접 파일 변환의 Excel fallback도 사전 직접 복사 실패 후 들어오는 경로라 `skip_direct=True`로 호출하도록 정리.
+- Windows 11 Notepad 검증 흔들림 보완: 고정 `sample_notepad.txt` 파일명이 Notepad 탭/세션 복원과 충돌하지 않도록 매 실행 고유 파일명을 사용하고, 텍스트 로딩을 짧게 대기하도록 수정.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 9, SKIP 0, FAIL 0
+- `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 단일 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 단일 EXE SHA256 -> `58256EF1CF133BF61EDE6B48867DAA932DA264F59CF834E31237144BBE82FF5D`
+
 ## Next
 1. Windows 환경에서 `build_security_pc.bat` 실행 후 최신 EXE/폴더형 EXE를 결과물 폴더에 교체
 2. 실제 사용자 문서로 Word/메모장 탭 수동 확인

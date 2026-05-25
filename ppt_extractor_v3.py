@@ -1149,10 +1149,9 @@ class DocumentExtractorV3:
         fd, stage_path = tempfile.mkstemp(prefix=".docextract_", suffix=ext, dir=target_dir)
         os.close(fd)
         try:
-            shutil.copy2(temp_path, stage_path)
-            self._validate_office_openxml(stage_path, f"{label} 최종 복사")
+            shutil.copyfile(temp_path, stage_path)
             os.replace(stage_path, save_path)
-            self._validate_office_openxml(save_path, f"{label} 최종 파일")
+            self._validate_copied_file(temp_path, save_path, f"{label} 최종 파일")
         except Exception:
             if os.path.exists(stage_path):
                 try:
@@ -1165,7 +1164,7 @@ class DocumentExtractorV3:
         """이미 정상 Office 패키지인 파일은 Office를 열지 않고 그대로 복사한다."""
         if os.path.abspath(source_path).lower() == os.path.abspath(save_path).lower():
             raise Exception("원본과 같은 경로로는 복사할 수 없습니다.")
-        self._validate_office_openxml(source_path, label)
+        self._validate_office_openxml(source_path, label, deep=False)
         target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
         os.makedirs(target_dir, exist_ok=True)
 
@@ -1173,10 +1172,9 @@ class DocumentExtractorV3:
         fd, stage_path = tempfile.mkstemp(prefix=".docextract_", suffix=ext, dir=target_dir)
         os.close(fd)
         try:
-            shutil.copy2(source_path, stage_path)
-            self._validate_office_openxml(stage_path, f"{label} 최종 복사")
+            shutil.copyfile(source_path, stage_path)
             os.replace(stage_path, save_path)
-            self._validate_office_openxml(save_path, f"{label} 최종 파일")
+            self._validate_copied_file(source_path, save_path, f"{label} 최종 파일")
             self.logger.log(f"{label} 파일 직접 복사 완료: {save_path}")
         except Exception:
             if os.path.exists(stage_path):
@@ -1186,7 +1184,28 @@ class DocumentExtractorV3:
                     pass
             raise
 
-    def _validate_office_openxml(self, path, label):
+    def _try_existing_office_file_copy(self, source_path, save_path, label):
+        """정상 OpenXML 파일은 Office COM을 열기 전에 빠르게 검증 복사한다."""
+        source_ext = os.path.splitext(source_path)[1].lower()
+        target_ext = os.path.splitext(save_path)[1].lower()
+        if source_ext != target_ext:
+            raise Exception(f"원본 확장자({source_ext})와 저장 확장자({target_ext})가 달라 직접 복사를 건너뜁니다.")
+        self._publish_existing_verified_file(source_path, save_path, label)
+
+    def _validate_copied_file(self, source_path, save_path, label):
+        """검증된 파일 복사 결과는 전체 ZIP 재검사 대신 크기와 헤더만 확인한다."""
+        if not os.path.exists(save_path) or os.path.getsize(save_path) == 0:
+            raise Exception(f"{label} 파일이 없거나 비어 있습니다.")
+        source_size = os.path.getsize(source_path)
+        target_size = os.path.getsize(save_path)
+        if source_size != target_size:
+            raise Exception(f"{label} 파일 크기가 원본과 다릅니다: {source_size} -> {target_size}")
+        source_header = self._read_header_hex(source_path, 4)
+        target_header = self._read_header_hex(save_path, 4)
+        if source_header != target_header:
+            raise Exception(f"{label} 파일 헤더가 원본과 다릅니다: {source_header} -> {target_header}")
+
+    def _validate_office_openxml(self, path, label, deep=True):
         """확장자가 OpenXML이면 실제 ZIP 패키지인지 확인한다."""
         ext = os.path.splitext(path)[1].lower()
         required_members = {
@@ -1216,13 +1235,14 @@ class DocumentExtractorV3:
             )
 
         with zipfile.ZipFile(path) as archive:
-            bad_member = archive.testzip()
-            if bad_member:
-                raise Exception(f"{label} 저장 결과 ZIP 항목 손상: {bad_member}")
             names = set(archive.namelist())
             missing = [member for member in required_members if member not in names]
             if missing:
                 raise Exception(f"{label} 저장 결과에 필수 항목이 없습니다: {missing}")
+            if deep:
+                bad_member = archive.testzip()
+                if bad_member:
+                    raise Exception(f"{label} 저장 결과 ZIP 항목 손상: {bad_member}")
 
     def _run_with_heartbeat(self, label, func, interval=10, warn_after=30):
         """긴 COM 호출 동안 로그 파일이 멈춘 것처럼 보이지 않게 주기 로그를 남긴다."""
@@ -2253,12 +2273,15 @@ class DocumentExtractorV3:
         if kind == "text":
             self._convert_text_source_file(source_path, save_path)
             return
-        if kind == "ppt":
+        if kind in {"ppt", "excel", "word"}:
+            label = {"ppt": "PPT", "excel": "Excel", "word": "Word"}[kind]
             try:
-                self._publish_existing_verified_file(source_path, save_path, "PPT")
+                self._try_existing_office_file_copy(source_path, save_path, label)
                 return
             except Exception as direct_copy_error:
-                self.logger.log(f"PPT 직접 파일 복사 불가, PowerPoint 내부 복원 시도: {str(direct_copy_error)[:120]}")
+                self.logger.log(
+                    f"{label} 직접 파일 복사 불가, Office 내부 복원 시도: {str(direct_copy_error)[:120]}"
+                )
 
         if not HAS_WIN32COM:
             raise Exception("Office 파일 직접 변환에는 pywin32/win32com이 필요합니다.")
@@ -2278,7 +2301,7 @@ class DocumentExtractorV3:
                 app, created = self._create_isolated_com_app("Excel.Application", "Excel")
                 alert_label = "Excel 직접 변환"
                 original_alerts = self._set_office_display_alerts(app, False, alert_label)
-                self._batch_convert_excel_file(app, source_path, save_path)
+                self._batch_convert_excel_file(app, source_path, save_path, skip_direct=True)
             elif kind == "word":
                 app, created = self._create_isolated_com_app("Word.Application", "Word")
                 self._batch_convert_word_file(app, source_path, save_path)
@@ -5114,12 +5137,55 @@ class DocumentExtractorV3:
                 except Exception:
                     pass
 
-    def _batch_convert_excel_file(self, excel_app, source_path, target_path):
+    def _set_excel_conversion_options(self, excel_app):
+        """일괄 변환용 Excel 인스턴스에서 불필요한 지연 요소를 끈다."""
+        options = {
+            "AskToUpdateLinks": False,
+            "EnableEvents": False,
+            "ScreenUpdating": False,
+            "DisplayAlerts": False,
+            "AutomationSecurity": 3,  # msoAutomationSecurityForceDisable
+            "Calculation": -4135,  # xlCalculationManual
+        }
+        for name, value in options.items():
+            try:
+                setattr(excel_app, name, value)
+            except Exception as exc:
+                self.logger.log(f"Excel 변환 옵션 설정 실패({name}): {str(exc)[:60]}")
+
+    def _open_excel_workbook_for_conversion(self, excel_app, source_path):
+        self._set_excel_conversion_options(excel_app)
+        try:
+            return excel_app.Workbooks.Open(
+                Filename=source_path,
+                UpdateLinks=0,
+                ReadOnly=True,
+                IgnoreReadOnlyRecommended=True,
+                Notify=False,
+                AddToMru=False,
+                Local=True,
+                CorruptLoad=0,
+            )
+        except Exception as exc:
+            message = str(exc)
+            if "매개 변수" in message or "parameter" in message.lower():
+                return excel_app.Workbooks.Open(source_path, 0, True)
+            raise
+
+    def _batch_convert_excel_file(self, excel_app, source_path, target_path, skip_direct=False):
         source_wb = None
         try:
+            if not skip_direct:
+                try:
+                    self._try_existing_office_file_copy(source_path, target_path, "Excel 일괄")
+                    return
+                except Exception as direct_copy_error:
+                    self.logger.log(
+                        f"  Excel 일괄 직접 복사 불가, Excel 열기 시도: {str(direct_copy_error)[:120]}"
+                    )
             source_wb = self._run_with_heartbeat(
                 "Excel 파일 열기",
-                lambda: excel_app.Workbooks.Open(source_path, ReadOnly=True),
+                lambda: self._open_excel_workbook_for_conversion(excel_app, source_path),
             )
             self.logger.log(f"  Excel 열기 완료: {source_wb.Name}")
             try:
@@ -5230,6 +5296,15 @@ class DocumentExtractorV3:
                             alert_states["ppt"] = self._set_office_display_alerts(ppt_app, 1, "PowerPoint 일괄")
                         self._batch_convert_ppt_file(ppt_app, source_path, target_path, skip_direct=True)
                     elif kind == "excel":
+                        try:
+                            self._try_existing_office_file_copy(source_path, target_path, "Excel 일괄")
+                            successes.append(target_path)
+                            self.logger.log(f"  일괄 변환 완료: {target_path}")
+                            continue
+                        except Exception as direct_copy_error:
+                            self.logger.log(
+                                f"  Excel 일괄 직접 복사 불가, Excel 내부 복원 시도: {str(direct_copy_error)[:120]}"
+                            )
                         if not HAS_WIN32COM:
                             raise Exception("Excel 일괄 변환에는 pywin32/win32com이 필요합니다.")
                         excel_app = self._get_or_create_batch_app(
@@ -5240,8 +5315,17 @@ class DocumentExtractorV3:
                         )
                         if "excel" not in alert_states:
                             alert_states["excel"] = self._set_office_display_alerts(excel_app, False, "Excel 일괄")
-                        self._batch_convert_excel_file(excel_app, source_path, target_path)
+                        self._batch_convert_excel_file(excel_app, source_path, target_path, skip_direct=True)
                     elif kind == "word":
+                        try:
+                            self._try_existing_office_file_copy(source_path, target_path, "Word 일괄")
+                            successes.append(target_path)
+                            self.logger.log(f"  일괄 변환 완료: {target_path}")
+                            continue
+                        except Exception as direct_copy_error:
+                            self.logger.log(
+                                f"  Word 일괄 직접 복사 불가, Word 내부 복원 시도: {str(direct_copy_error)[:120]}"
+                            )
                         if not HAS_WIN32COM:
                             raise Exception("Word 일괄 변환에는 pywin32/win32com이 필요합니다.")
                         word_app = self._get_or_create_batch_app(

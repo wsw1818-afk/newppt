@@ -747,7 +747,7 @@ def find_child_window_by_classes(parent_hwnd: int, class_names: list[str]) -> in
 def check_notepad_legacy_read(out_dir: Path) -> str:
     require_windows("notepad legacy read")
     user32 = ctypes.windll.user32
-    sample = out_dir / "sample_notepad.txt"
+    sample = (out_dir / f"sample_notepad_{os.getpid()}_{int(time.time() * 1000)}.txt").resolve()
     expected = "verify notepad legacy read"
     sample.write_text(expected, encoding="utf-8")
 
@@ -774,10 +774,18 @@ def check_notepad_legacy_read(out_dir: Path) -> str:
         if not edit_hwnd:
             raise SkipTest("Notepad does not expose legacy Edit/RichEdit control")
 
-        text_len = user32.SendMessageW(edit_hwnd, 0x000E, 0, 0)  # WM_GETTEXTLENGTH
-        buffer = ctypes.create_unicode_buffer(text_len + 16)
-        copied = user32.SendMessageW(edit_hwnd, 0x000D, len(buffer), buffer)  # WM_GETTEXT
-        if copied <= 0 or expected not in buffer.value:
+        copied = 0
+        value = ""
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            text_len = user32.SendMessageW(edit_hwnd, 0x000E, 0, 0)  # WM_GETTEXTLENGTH
+            buffer = ctypes.create_unicode_buffer(max(text_len + 16, len(expected) + 16))
+            copied = user32.SendMessageW(edit_hwnd, 0x000D, len(buffer), buffer)  # WM_GETTEXT
+            value = buffer.value
+            if copied > 0 and expected in value:
+                return f"chars={copied}"
+            time.sleep(0.2)
+        if copied <= 0 or expected not in value:
             raise RuntimeError("Notepad text read mismatch")
         return f"chars={copied}"
     finally:
