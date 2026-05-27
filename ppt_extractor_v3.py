@@ -23,6 +23,8 @@ import base64
 import ctypes
 from ctypes import wintypes
 
+APP_BUILD_ID = "2026-05-27-excel-range-v2"
+
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
     HAS_TKINTERDND = True
@@ -86,6 +88,8 @@ class Logger:
         self.log(f"=== 문서 추출기 v3 로그 시작 ===")
         self.log(f"로그 파일: {self.log_path}")
         self.log(f"시작 시간: {datetime.datetime.now()}")
+        self.log(f"빌드 ID: {APP_BUILD_ID}")
+        self.log(f"실행 파일: {sys.executable}")
         self.log(f"지원 문서: PPT, Excel, Word, 메모장")
         self.log("")
 
@@ -2942,14 +2946,12 @@ class DocumentExtractorV3:
 
                 # 사용 범위 가져오기
                 try:
-                    used_range = source_sheet.UsedRange
-                    if used_range is None:
+                    source_range, start_row, start_col, row_count, col_count = self._get_excel_effective_range(
+                        source_sheet, sheet_name
+                    )
+                    if source_range is None:
                         continue
 
-                    row_count = used_range.Rows.Count
-                    col_count = used_range.Columns.Count
-                    start_row = used_range.Row
-                    start_col = used_range.Column
                     cell_count = row_count * col_count
 
                     self.logger.log(f"    범위: {row_count}행 x {col_count}열 ({cell_count:,}셀, 시작: {start_row},{start_col})")
@@ -2976,7 +2978,7 @@ class DocumentExtractorV3:
 
                     # 값/수식은 COM Range에서 한 번에 읽어 셀 단위 왕복을 줄인다.
                     try:
-                        range_data = used_range.Value if values_only else used_range.Formula
+                        range_data = source_range.Value if values_only else source_range.Formula
                         data_rows = self._excel_range_to_rows(range_data, row_count, col_count)
                         for r, row_values in enumerate(data_rows):
                             for c, value in enumerate(row_values[:col_count]):
@@ -3073,24 +3075,14 @@ class DocumentExtractorV3:
                     else:
                         self.logger.log(f"    열 너비 복사 생략: {col_count:,}열")
 
-                    # 병합 셀 복사
-                    try:
-                        merged_areas = source_sheet.UsedRange.MergeAreas
-                        for area_idx in range(1, merged_areas.Count + 1):
-                            area = merged_areas(area_idx)
-                            if area.Cells.Count > 1:
-                                first_row = area.Row
-                                first_col = area.Column
-                                last_row = first_row + area.Rows.Count - 1
-                                last_col = first_col + area.Columns.Count - 1
-                                new_sheet.merge_cells(
-                                    start_row=first_row,
-                                    start_column=first_col,
-                                    end_row=last_row,
-                                    end_column=last_col,
-                                )
-                    except Exception:
-                        pass
+                    self._copy_excel_merged_cells(
+                        source_sheet,
+                        new_sheet,
+                        start_row,
+                        start_col,
+                        start_row + row_count - 1,
+                        start_col + col_count - 1,
+                    )
 
                 except Exception as sheet_err:
                     self.logger.error(f"시트 '{sheet_name}' 처리 오류", sheet_err)
@@ -3121,6 +3113,296 @@ class DocumentExtractorV3:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             self.root.after(0, lambda: self.excel_extract_button.config(state=tk.NORMAL))
             pythoncom.CoUninitialize()
+
+    def _excel_find_cell(self, source_sheet, search_order, search_direction, look_ins=None):
+        """서식만 묻은 UsedRange 대신 실제 값/수식 셀을 찾는다."""
+        cells = source_sheet.Cells
+        if look_ins is None:
+            look_ins = (-4163, -4123)  # xlValues, xlFormulas
+        try:
+            source_sheet.Application.FindFormat.Clear()
+        except Exception:
+            pass
+        try:
+            if search_direction == 2:  # xlPrevious
+                after_cell = cells(1, 1)
+            else:
+                after_cell = cells(source_sheet.Rows.Count, source_sheet.Columns.Count)
+        except Exception:
+            after_cell = None
+
+        for look_in in look_ins:
+            try:
+                find_kwargs = {
+                    "What": "*",
+                    "LookIn": look_in,
+                    "LookAt": 2,  # xlPart
+                    "SearchOrder": search_order,
+                    "SearchDirection": search_direction,
+                    "MatchCase": False,
+                    "SearchFormat": False,
+                }
+                if after_cell is not None:
+                    find_kwargs["After"] = after_cell
+                cell = cells.Find(**find_kwargs)
+                if cell is not None:
+                    return cell
+            except Exception:
+                pass
+
+            try:
+                cell = cells.Find("*", after_cell, look_in, 2, search_order, search_direction, False, False, False)
+                if cell is not None:
+                    return cell
+            except Exception:
+                pass
+
+        return None
+
+    def _excel_bounds_cell_count(self, bounds):
+        if bounds is None:
+            return 0
+        return max(1, bounds[2] - bounds[0] + 1) * max(1, bounds[3] - bounds[1] + 1)
+
+    def _excel_content_bounds_by_look_in(self, source_sheet, look_in):
+        """값 또는 수식 기준으로 실제 셀 범위를 반환한다."""
+        try:
+            look_ins = (look_in,)
+            last_row_cell = self._excel_find_cell(source_sheet, 1, 2, look_ins)  # xlByRows, xlPrevious
+            last_col_cell = self._excel_find_cell(source_sheet, 2, 2, look_ins)  # xlByColumns, xlPrevious
+            if last_row_cell is None or last_col_cell is None:
+                return None
+
+            first_row_cell = self._excel_find_cell(source_sheet, 1, 1, look_ins) or last_row_cell  # xlNext
+            first_col_cell = self._excel_find_cell(source_sheet, 2, 1, look_ins) or last_col_cell
+
+            first_row = max(1, int(first_row_cell.Row))
+            first_col = max(1, int(first_col_cell.Column))
+            last_row = max(1, int(last_row_cell.Row))
+            last_col = max(1, int(last_col_cell.Column))
+            return (
+                min(first_row, last_row),
+                min(first_col, last_col),
+                max(first_row, last_row),
+                max(first_col, last_col),
+            )
+        except Exception:
+            return None
+
+    def _excel_content_bounds(self, source_sheet):
+        """값/수식이 들어 있는 실제 셀 범위를 반환한다."""
+        value_bounds = self._excel_content_bounds_by_look_in(source_sheet, -4163)  # xlValues
+        formula_bounds = self._excel_content_bounds_by_look_in(source_sheet, -4123)  # xlFormulas
+
+        if value_bounds is None:
+            if self._excel_bounds_cell_count(formula_bounds) <= self.EXCEL_VALUE_CELL_LIMIT:
+                return formula_bounds
+            return None
+
+        if formula_bounds is None:
+            return value_bounds
+
+        if self._excel_bounds_cell_count(formula_bounds) > self.EXCEL_VALUE_CELL_LIMIT:
+            return value_bounds
+
+        return self._union_excel_bounds(value_bounds, formula_bounds)
+
+    def _excel_shape_bounds(self, source_sheet):
+        """도형/그림이 배치된 셀 범위를 반환한다."""
+        try:
+            shapes = source_sheet.Shapes
+            shape_count = shapes.Count
+        except Exception:
+            return None
+
+        bounds = None
+        for shape_idx in range(1, shape_count + 1):
+            try:
+                shape = shapes(shape_idx)
+                try:
+                    if not bool(shape.Visible):
+                        continue
+                except Exception:
+                    pass
+
+                top_left = shape.TopLeftCell
+                bottom_right = shape.BottomRightCell
+                top_row = max(1, int(top_left.Row))
+                top_col = max(1, int(top_left.Column))
+                bottom_row = max(1, int(bottom_right.Row))
+                bottom_col = max(1, int(bottom_right.Column))
+                current = (
+                    min(top_row, bottom_row),
+                    min(top_col, bottom_col),
+                    max(top_row, bottom_row),
+                    max(top_col, bottom_col),
+                )
+                bounds = self._union_excel_bounds(bounds, current)
+            except Exception:
+                continue
+
+        return bounds
+
+    def _excel_used_range_bounds(self, source_sheet):
+        """Excel UsedRange 범위와 셀 수를 반환한다."""
+        try:
+            used_range = source_sheet.UsedRange
+            if used_range is None:
+                return None, 0
+
+            start_row = int(used_range.Row)
+            start_col = int(used_range.Column)
+            row_count = int(used_range.Rows.Count)
+            col_count = int(used_range.Columns.Count)
+            bounds = (
+                max(1, start_row),
+                max(1, start_col),
+                max(1, start_row + row_count - 1),
+                max(1, start_col + col_count - 1),
+            )
+            return bounds, row_count * col_count
+        except Exception:
+            return None, 0
+
+    def _union_excel_bounds(self, left, right):
+        if left is None:
+            return right
+        if right is None:
+            return left
+        return (
+            min(left[0], right[0]),
+            min(left[1], right[1]),
+            max(left[2], right[2]),
+            max(left[3], right[3]),
+        )
+
+    def _intersects_excel_bounds(self, left, right):
+        return not (
+            left[2] < right[0]
+            or right[2] < left[0]
+            or left[3] < right[1]
+            or right[3] < left[1]
+        )
+
+    def _expand_excel_bounds_for_merges(self, source_sheet, bounds):
+        """범위 안의 병합 셀은 병합 영역 전체가 들어가도록 확장한다."""
+        if bounds is None:
+            return None
+
+        expanded = bounds
+        for _ in range(2):
+            before = expanded
+            try:
+                check_range = source_sheet.Range(
+                    source_sheet.Cells(expanded[0], expanded[1]),
+                    source_sheet.Cells(expanded[2], expanded[3]),
+                )
+                merged_areas = check_range.MergeAreas
+                for area_idx in range(1, merged_areas.Count + 1):
+                    area = merged_areas(area_idx)
+                    if area.Cells.Count <= 1:
+                        continue
+                    area_bounds = (
+                        int(area.Row),
+                        int(area.Column),
+                        int(area.Row + area.Rows.Count - 1),
+                        int(area.Column + area.Columns.Count - 1),
+                    )
+                    if self._intersects_excel_bounds(expanded, area_bounds):
+                        expanded = self._union_excel_bounds(expanded, area_bounds)
+            except Exception:
+                break
+
+            if expanded == before:
+                break
+
+        return expanded
+
+    def _get_excel_effective_range(self, source_sheet, sheet_name):
+        """서식만 있는 빈 행/열을 제외한 실제 복사 범위를 계산한다."""
+        used_bounds, used_cell_count = self._excel_used_range_bounds(source_sheet)
+        content_bounds = self._excel_content_bounds(source_sheet)
+
+        if content_bounds is None:
+            bounds = None
+        elif used_bounds is not None and 0 < used_cell_count <= self.EXCEL_VALUE_CELL_LIMIT:
+            bounds = used_bounds
+        else:
+            bounds = content_bounds
+            if bounds is not None and used_bounds is not None:
+                bounds = (
+                    min(bounds[0], used_bounds[0]),
+                    min(bounds[1], used_bounds[1]),
+                    bounds[2],
+                    bounds[3],
+                )
+
+        if bounds is None:
+            if content_bounds is not None and used_bounds is not None and used_cell_count <= self.EXCEL_VALUE_CELL_LIMIT:
+                bounds = used_bounds
+            elif used_bounds is not None:
+                bounds = (1, 1, 1, 1)
+            else:
+                bounds = (1, 1, 1, 1)
+
+        bounds = self._expand_excel_bounds_for_merges(source_sheet, bounds)
+        start_row, start_col, end_row, end_col = bounds
+        row_count = max(1, end_row - start_row + 1)
+        col_count = max(1, end_col - start_col + 1)
+        effective_cell_count = row_count * col_count
+
+        if used_cell_count and used_cell_count > max(effective_cell_count * 2, self.EXCEL_VALUE_CELL_LIMIT):
+            self.logger.log(
+                f"    UsedRange 보정: {used_cell_count:,}셀 -> {effective_cell_count:,}셀 "
+                f"({sheet_name})"
+            )
+
+        source_range = source_sheet.Range(
+            source_sheet.Cells(start_row, start_col),
+            source_sheet.Cells(end_row, end_col),
+        )
+        return source_range, start_row, start_col, row_count, col_count
+
+    def _copy_excel_merged_cells(self, source_sheet, new_sheet, start_row, start_col, end_row, end_col):
+        """계산된 범위 안의 병합 셀만 복사한다."""
+        bounds = (start_row, start_col, end_row, end_col)
+        copied = 0
+        seen = set()
+        try:
+            check_range = source_sheet.Range(
+                source_sheet.Cells(start_row, start_col),
+                source_sheet.Cells(end_row, end_col),
+            )
+            merged_areas = check_range.MergeAreas
+            for area_idx in range(1, merged_areas.Count + 1):
+                area = merged_areas(area_idx)
+                if area.Cells.Count <= 1:
+                    continue
+
+                first_row = int(area.Row)
+                first_col = int(area.Column)
+                last_row = int(first_row + area.Rows.Count - 1)
+                last_col = int(first_col + area.Columns.Count - 1)
+                area_bounds = (first_row, first_col, last_row, last_col)
+                if not self._intersects_excel_bounds(bounds, area_bounds):
+                    continue
+
+                key = (first_row, first_col, last_row, last_col)
+                if key in seen:
+                    continue
+                seen.add(key)
+                new_sheet.merge_cells(
+                    start_row=first_row,
+                    start_column=first_col,
+                    end_row=last_row,
+                    end_column=last_col,
+                )
+                copied += 1
+        except Exception:
+            return
+
+        if copied:
+            self.logger.log(f"    병합 셀 복사: {copied}개")
 
     def _excel_range_to_rows(self, value, row_count, col_count):
         """Excel COM Range 값을 항상 행 튜플 형태로 정규화한다."""
@@ -3240,7 +3522,7 @@ class DocumentExtractorV3:
 
                 time.sleep(self.EXCEL_OBJECT_RETRY_DELAY)
                 img_path = self._get_image_from_clipboard(temp_dir)
-                if img_path:
+                if img_path and os.path.splitext(img_path)[1].lower() in [".png", ".jpg", ".jpeg", ".bmp", ".gif"]:
                     ext = os.path.splitext(img_path)[1] or ".png"
                     final_path = os.path.join(
                         temp_dir,
@@ -3256,12 +3538,82 @@ class DocumentExtractorV3:
                         return final_path
                     except Exception:
                         return img_path
+                if img_path:
+                    self.logger.log(
+                        f"    객체 {shape_idx} 클립보드 이미지 형식 변환 필요: "
+                        f"{os.path.splitext(img_path)[1].lower() or 'unknown'}"
+                    )
+                    try:
+                        os.remove(img_path)
+                    except Exception:
+                        pass
+
+                chart_path = self._excel_shape_to_chart_image(
+                    source_shape, temp_dir, safe_sheet, shape_idx, retry
+                )
+                if chart_path:
+                    return chart_path
             except Exception as e:
                 self.logger.log(
                     f"    객체 {shape_idx} 클립보드 복사 실패 "
                     f"(시도 {retry+1}/{self.EXCEL_OBJECT_RETRY_COUNT}): {str(e)[:50]}"
                 )
                 time.sleep(self.EXCEL_OBJECT_RETRY_DELAY)
+
+        return None
+
+    def _excel_shape_to_chart_image(self, source_shape, temp_dir, safe_sheet, shape_idx, retry):
+        """Excel 임시 ChartObject를 이용해 도형/그림/OLE 객체를 PNG로 내보낸다."""
+        chart_obj = None
+        try:
+            worksheet = source_shape.Parent
+            try:
+                worksheet.Activate()
+            except Exception:
+                pass
+            left = float(source_shape.Left)
+            top = float(source_shape.Top)
+            width = max(2.0, float(source_shape.Width))
+            height = max(2.0, float(source_shape.Height))
+            chart_obj = worksheet.ChartObjects().Add(left, top, width, height)
+            chart = chart_obj.Chart
+
+            for copy_mode in ("picture_bitmap", "picture_vector", "copy"):
+                try:
+                    try:
+                        source_shape.Select(False)
+                    except Exception:
+                        pass
+                    if copy_mode == "picture_bitmap":
+                        source_shape.CopyPicture(Appearance=1, Format=2)
+                    elif copy_mode == "picture_vector":
+                        source_shape.CopyPicture(Appearance=1, Format=-4147)  # xlPicture
+                    else:
+                        source_shape.Copy()
+
+                    time.sleep(self.EXCEL_OBJECT_RETRY_DELAY)
+                    chart.Paste()
+                    png_path = os.path.join(
+                        temp_dir,
+                        f"excel_{safe_sheet}_{shape_idx}_{retry}_chart.png",
+                    )
+                    if chart.Export(Filename=png_path, FilterName="PNG") and os.path.exists(png_path):
+                        if os.path.getsize(png_path) > 0:
+                            return png_path
+                except Exception as mode_error:
+                    self.logger.log(
+                        f"    객체 {shape_idx} 차트 PNG {copy_mode} 실패: {str(mode_error)[:50]}"
+                    )
+                    continue
+
+        except Exception as e:
+            self.logger.log(f"    객체 {shape_idx} 차트 PNG 변환 실패: {str(e)[:60]}")
+        finally:
+            if chart_obj is not None:
+                try:
+                    chart_obj.Delete()
+                except Exception:
+                    pass
 
         return None
 
@@ -3973,6 +4325,32 @@ class DocumentExtractorV3:
 
             finally:
                 win32clipboard.CloseClipboard()
+        except:
+            pass
+
+        try:
+            from PIL import Image, ImageGrab
+
+            grabbed = ImageGrab.grabclipboard()
+            if isinstance(grabbed, Image.Image):
+                img_path = os.path.join(temp_dir, f"clipboard_grab_{int(time.time() * 1000)}.png")
+                if grabbed.mode not in ("RGB", "RGBA"):
+                    grabbed = grabbed.convert("RGBA")
+                grabbed.save(img_path, "PNG")
+                return img_path
+
+            if isinstance(grabbed, list):
+                for item in grabbed:
+                    if not item or not os.path.exists(item):
+                        continue
+                    ext = os.path.splitext(item)[1].lower()
+                    if ext in [".png", ".jpg", ".jpeg", ".bmp", ".gif"]:
+                        img_path = os.path.join(
+                            temp_dir,
+                            f"clipboard_file_{int(time.time() * 1000)}{ext}",
+                        )
+                        shutil.copyfile(item, img_path)
+                        return img_path
         except:
             pass
         return None

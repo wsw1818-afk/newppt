@@ -378,6 +378,44 @@
 - 단일 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
 - 단일 EXE SHA256 -> `58256EF1CF133BF61EDE6B48867DAA932DA264F59CF834E31237144BBE82FF5D`
 
+## 2026-05-27
+- 사용자 Excel 로그 분석: 원본 복사가 DRM/SCDS 컨테이너로 막혀 재구성 경로로 전환된 뒤 `선번장` 시트의 `UsedRange`가 1,048,576행 x 43열로 과대 감지되어 원본 규격 복사가 깨지는 문제를 확인.
+- Excel 재구성 범위 계산을 `UsedRange` 단독 기준에서 실제 값/수식 `Find("*")`, 도형 위치, 병합 셀 확장 범위를 합산하는 방식으로 변경해 불필요한 빈 행/열 서식 때문에 전체 행을 복사하지 않도록 수정.
+- 병합 셀 복사도 전체 `UsedRange.MergeAreas` 대신 계산된 유효 범위 안에서만 처리하도록 변경해 과대 범위 시트의 지연과 오류를 줄임.
+- 후속 사용자 로그에서 일반 데이터 시트까지 `1행 x 1열`로 과도하게 줄어든 문제를 확인하고, Excel `Find("*")` 호출에 `After` 기준 셀을 명시해 첫/마지막 데이터 셀 검색을 안정화.
+- 정상 크기의 `UsedRange`는 기존처럼 그대로 사용하고, 값 복사 한도를 넘는 비정상 과대 `UsedRange` 시트에만 실제 값/수식/도형 기준 보정을 적용하도록 수정.
+- `한국교직원공제회 구축공정 (20260527)_복111사본.xlsx` 분석: 일반 시트는 복구됐지만 `선번장` 시트의 삽입 객체 2개가 누락되어 빈 시트로 남는 문제를 확인.
+- Excel 객체 복사에서 클립보드 이미지가 EMF 등 openpyxl 미지원 형식으로만 잡히거나 비어 있을 때, Excel 임시 `ChartObject`에 붙여넣어 PNG로 내보내는 폴백을 추가.
+- `scripts\goal_verify_v3.py`에 Excel 재구성 전용 검증을 추가해 과대 `UsedRange` 시트의 실제 범위, 행/열 크기, 삽입 객체 이미지 보존을 함께 확인하도록 보강.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 10, SKIP 0, FAIL 0
+- Excel COM 재현 검증: 원시 `UsedRange=1,048,572행` 시트를 유효 범위 `1셀`로 보정 확인
+- `git diff --check` -> 성공
+- `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 단일 EXE만 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 추가 전체 검증: 전체 Python 파일 문법 검사, `goal_verify_v3`, Excel 정상/과대 `UsedRange` 재현 검증, PyInstaller 단일 EXE 빌드 재확인 -> 성공
+- 단일 EXE SHA256 -> `1282EF520171ACA57641917B456D01554234E78316A81C1EB93E2230C5279A0A`
+
+### 2026-05-27 추가 Excel 재구성 보정
+- Excel DRM/SCDS 재구성 경로에서 도형/이미지의 배치 셀을 값 복사 범위 계산에 섞지 않도록 분리했다.
+- 객체 전용 시트는 셀 범위를 `A1` 1셀로 제한하고, 객체는 별도 이미지로 보존하도록 보정했다.
+- Excel `Find("*")` 범위 계산을 값 기준 우선으로 바꾸고, 빈 문자열 수식/서식 꼬리 때문에 1,048,576행까지 확장되는 케이스를 막았다.
+- Excel 객체 복사는 클립보드 DIB/PNG/EMF 외에 PIL `ImageGrab.grabclipboard()`와 임시 `ChartObject` PNG 변환을 추가했다.
+- `scripts\goal_verify_v3.py`의 `excel_reconstruction_fallback` 검증을 과대 UsedRange, 빈 문자열 수식 꼬리, 객체 전용 시트 이미지까지 확인하도록 확장했다.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 10, SKIP 0, FAIL 0
+- `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공
+- 단일 EXE를 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`로 교체 -> 성공
+- 단일 EXE SHA256 -> `F0FA80CAD708A174A0E18BBA4435E96146162F9A7CE87E84C37388CD4666E3C4`
+- 사용자가 요청한 전전전 커밋 확인: `HEAD~3=517833e`도 Excel 재구성에서 `UsedRange`를 그대로 사용하며, 재현 테스트상 값이 있는 시트에 마지막 행 서식이 묻으면 `1,048,576행 x 20열`로 잡혀 기존 `500,000셀` 제한에 걸리는 것을 확인.
+- A/B 비교용 과거 EXE를 별도 파일로 빌드해 `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3_517833e.exe`에 복사 -> 성공
+- `DocumentExtractor_v3_517833e.exe` SHA256 -> `A0451D47D82F74E719825EB1C622D55D3C2FC5A8616A497406A87B552FA8BEBE`
+- 사용자 추가 로그도 `ppt_extractor_v3.py line 2772`로 확인되어 과거 EXE 실행으로 판단. 혼선을 줄이기 위해 시작 로그에 `빌드 ID: 2026-05-27-excel-range-v2`와 `실행 파일:` 경로를 출력하도록 추가.
+- 결과물 폴더의 `DocumentExtractor_v3.exe`, `DocumentExtractor_v3_1.exe`, `DocumentExtractor_v3_517833e.exe`를 모두 최신 동일 EXE로 덮어씀.
+- 최신 동일 EXE SHA256 -> `40768513B4B1FFCA4EFF13E6703589EDB261EC4F9EE07FD53039249D2DE8845C`
+- 사용자 재확인: 최신 빌드 실행 로그에서 `선번장`이 여전히 과대 UsedRange로 잡혔으나, Excel을 완전히 종료 후 다시 열어 변환하니 진행됨. 원인은 코드 단독 문제가 아니라 열린 Excel 세션의 `UsedRange`/보안 래퍼 상태 꼬임 가능성이 높음.
+- 큰 시트에서 느려질 수 있는 실험성 표시값 스캔 보정은 배포 EXE에 넣지 않았고 소스에서도 제거했다.
+
 ## Next
 1. Windows 환경에서 `build_security_pc.bat` 실행 후 최신 EXE/폴더형 EXE를 결과물 폴더에 교체
 2. 실제 사용자 문서로 Word/메모장 탭 수동 확인

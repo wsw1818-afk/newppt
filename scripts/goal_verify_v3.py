@@ -341,6 +341,129 @@ def check_excel_native_copy(out_dir: Path) -> str:
     return f"shapes={shapes} width={width:.1f} height={height:.1f}"
 
 
+def check_excel_reconstruction_fallback(out_dir: Path) -> str:
+    pythoncom, _pywintypes, win32 = import_com()
+    from openpyxl import Workbook, load_workbook
+    from ppt_extractor_v3 import DocumentExtractorV3
+
+    class StubLogger:
+        def log(self, message: str) -> None:
+            pass
+
+    temp_dir = out_dir / "excel_rebuild_objects"
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    rebuilt = out_dir / "sample_excel_rebuilt.xlsx"
+
+    pythoncom.CoInitialize()
+    app = None
+    wb = None
+    try:
+        extractor = object.__new__(DocumentExtractorV3)
+        extractor.logger = StubLogger()
+
+        app = dispatch_isolated(win32, "Excel.Application", "Excel")
+        app.Visible = False
+        app.DisplayAlerts = False
+        wb = app.Workbooks.Add()
+        ws = wb.Worksheets(1)
+        ws.Name = "Rebuild"
+        ws.Cells(1, 2).Value = "header"
+        ws.Cells(46, 20).Value = "last"
+        ws.Columns(2).ColumnWidth = 22
+        ws.Rows(1).RowHeight = 36
+        ws.Rows(1048576).Interior.Color = 65535  # stale formatting inflates UsedRange
+        shape = ws.Shapes.AddShape(1, 160, 48, 180, 90)
+        shape.TextFrame.Characters().Text = "object"
+
+        ws_formula = wb.Worksheets.Add(After=ws)
+        ws_formula.Name = "FormulaTail"
+        ws_formula.Cells(2, 1).Value = "visible"
+        ws_formula.Cells(1048576, 20).Formula = '=""'
+
+        ws_object_only = wb.Worksheets.Add(After=ws_formula)
+        ws_object_only.Name = "ObjectOnly"
+        ws_object_only.Rows(1048576).Interior.Color = 65535
+        object_only_shape = ws_object_only.Shapes.AddShape(1, 80, 40, 160, 80)
+        object_only_shape.TextFrame.Characters().Text = "object only"
+
+        new_wb = Workbook()
+        new_ws = new_wb.active
+        new_ws.title = "Rebuild"
+        extractor._copy_excel_sheet_objects(ws, new_ws, str(temp_dir), "Rebuild")
+        source_range, start_row, start_col, row_count, col_count = extractor._get_excel_effective_range(ws, "Rebuild")
+
+        if (start_row, start_col, row_count, col_count) != (1, 2, 46, 19):
+            raise RuntimeError(
+                f"effective range mismatch: {(start_row, start_col, row_count, col_count)}"
+            )
+
+        _, f_start_row, f_start_col, f_row_count, f_col_count = extractor._get_excel_effective_range(
+            ws_formula, "FormulaTail"
+        )
+        if (f_start_row, f_start_col, f_row_count, f_col_count) != (2, 1, 1, 1):
+            raise RuntimeError(
+                "formula tail range mismatch: "
+                f"{(f_start_row, f_start_col, f_row_count, f_col_count)}"
+            )
+
+        object_ws = new_wb.create_sheet("ObjectOnly")
+        extractor._copy_excel_sheet_objects(ws_object_only, object_ws, str(temp_dir), "ObjectOnly")
+        _, o_start_row, o_start_col, o_row_count, o_col_count = extractor._get_excel_effective_range(
+            ws_object_only, "ObjectOnly"
+        )
+        if (o_start_row, o_start_col, o_row_count, o_col_count) != (1, 1, 1, 1):
+            raise RuntimeError(
+                "object-only range mismatch: "
+                f"{(o_start_row, o_start_col, o_row_count, o_col_count)}"
+            )
+
+        data_rows = extractor._excel_range_to_rows(source_range.Formula, row_count, col_count)
+        for r, row_values in enumerate(data_rows):
+            for c, value in enumerate(row_values[:col_count]):
+                if value is not None:
+                    new_ws.cell(row=start_row + r, column=start_col + c).value = value
+
+        for r in range(1, row_count + 1):
+            height = ws.Rows(start_row + r - 1).RowHeight
+            if height:
+                new_ws.row_dimensions[start_row + r - 1].height = height
+        for c in range(1, col_count + 1):
+            width = ws.Columns(start_col + c - 1).ColumnWidth
+            new_ws.column_dimensions[chr(ord("A") + start_col + c - 2)].width = width
+
+        new_wb.save(rebuilt)
+    finally:
+        if wb is not None:
+            try:
+                wb.Close(False)
+            except Exception:
+                pass
+        if app is not None:
+            try:
+                app.Quit()
+            except Exception:
+                pass
+        pythoncom.CoUninitialize()
+
+    checked = load_workbook(rebuilt, data_only=False)
+    ws2 = checked["Rebuild"]
+    images = len(getattr(ws2, "_images", []))
+    object_images = len(getattr(checked["ObjectOnly"], "_images", []))
+    if ws2.cell(1, 2).value != "header" or ws2.cell(46, 20).value != "last":
+        raise RuntimeError("rebuilt Excel data range missing")
+    if images < 1:
+        raise RuntimeError("rebuilt Excel object image missing")
+    if object_images < 1:
+        raise RuntimeError("rebuilt object-only Excel image missing")
+    if abs(float(ws2.column_dimensions["B"].width) - 22) > 0.1:
+        raise RuntimeError("rebuilt Excel column width missing")
+    if abs(float(ws2.row_dimensions[1].height) - 36) > 0.1:
+        raise RuntimeError("rebuilt Excel row height missing")
+    return f"range=46x19 images={images} object_images={object_images}"
+
+
 def check_word_safe_copy(out_dir: Path) -> str:
     pythoncom, _pywintypes, win32 = import_com()
     from ppt_extractor_v3 import DocumentExtractorV3
@@ -834,6 +957,7 @@ def main() -> int:
         ("ppt_native_copy", lambda: check_ppt_native_copy(out_dir)),
         ("ppt_clipboard_package", lambda: check_ppt_clipboard_package(out_dir)),
         ("excel_native_copy", lambda: check_excel_native_copy(out_dir)),
+        ("excel_reconstruction_fallback", lambda: check_excel_reconstruction_fallback(out_dir)),
         ("word_safe_copy", lambda: check_word_safe_copy(out_dir)),
         ("word_openxml_copy", lambda: check_word_openxml_copy(out_dir)),
         ("word_xml_text_sanitizer", lambda: check_word_xml_text_sanitizer(out_dir)),
