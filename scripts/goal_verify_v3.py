@@ -344,6 +344,7 @@ def check_excel_native_copy(out_dir: Path) -> str:
 def check_excel_reconstruction_fallback(out_dir: Path) -> str:
     pythoncom, _pywintypes, win32 = import_com()
     from openpyxl import Workbook, load_workbook
+    from openpyxl.utils import get_column_letter
     from ppt_extractor_v3 import DocumentExtractorV3
 
     class StubLogger:
@@ -391,7 +392,11 @@ def check_excel_reconstruction_fallback(out_dir: Path) -> str:
         new_wb = Workbook()
         new_ws = new_wb.active
         new_ws.title = "Rebuild"
-        extractor._copy_excel_sheet_objects(ws, new_ws, str(temp_dir), "Rebuild")
+        copied_objects, visible_objects = extractor._copy_excel_sheet_objects(ws, new_ws, str(temp_dir), "Rebuild")
+        if visible_objects < 1 or copied_objects < 1:
+            raise RuntimeError(
+                f"Excel object copy count mismatch: copied={copied_objects}, visible={visible_objects}"
+            )
         source_range, start_row, start_col, row_count, col_count = extractor._get_excel_effective_range(ws, "Rebuild")
 
         if (start_row, start_col, row_count, col_count) != (1, 2, 46, 19):
@@ -409,7 +414,14 @@ def check_excel_reconstruction_fallback(out_dir: Path) -> str:
             )
 
         object_ws = new_wb.create_sheet("ObjectOnly")
-        extractor._copy_excel_sheet_objects(ws_object_only, object_ws, str(temp_dir), "ObjectOnly")
+        copied_object_only, visible_object_only = extractor._copy_excel_sheet_objects(
+            ws_object_only, object_ws, str(temp_dir), "ObjectOnly"
+        )
+        if visible_object_only < 1 or copied_object_only < 1:
+            raise RuntimeError(
+                "Excel object-only copy count mismatch: "
+                f"copied={copied_object_only}, visible={visible_object_only}"
+            )
         _, o_start_row, o_start_col, o_row_count, o_col_count = extractor._get_excel_effective_range(
             ws_object_only, "ObjectOnly"
         )
@@ -431,7 +443,7 @@ def check_excel_reconstruction_fallback(out_dir: Path) -> str:
                 new_ws.row_dimensions[start_row + r - 1].height = height
         for c in range(1, col_count + 1):
             width = ws.Columns(start_col + c - 1).ColumnWidth
-            new_ws.column_dimensions[chr(ord("A") + start_col + c - 2)].width = width
+            new_ws.column_dimensions[get_column_letter(start_col + c - 1)].width = width
 
         new_wb.save(rebuilt)
     finally:

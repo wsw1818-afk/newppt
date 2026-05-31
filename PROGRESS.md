@@ -416,6 +416,35 @@
 - 사용자 재확인: 최신 빌드 실행 로그에서 `선번장`이 여전히 과대 UsedRange로 잡혔으나, Excel을 완전히 종료 후 다시 열어 변환하니 진행됨. 원인은 코드 단독 문제가 아니라 열린 Excel 세션의 `UsedRange`/보안 래퍼 상태 꼬임 가능성이 높음.
 - 큰 시트에서 느려질 수 있는 실험성 표시값 스캔 보정은 배포 EXE에 넣지 않았고 소스에서도 제거했다.
 
+## 2026-05-28
+- Excel DRM/SCDS 재구성 경로에서 시트 처리 오류나 삽입 객체 누락이 있어도 전체 결과가 단순 성공처럼 보이는 문제를 줄였다.
+- `_extract_excel()` 재구성 루프에 `rebuild_issues`를 추가해 시트 오류, 객체 일부 복사 실패를 누적 기록한다.
+- 재구성 파일은 저장하되 확인 필요 항목이 있으면 로그와 UI를 `부분 완료 - 확인 필요`로 표시하고 `messagebox.showwarning`을 띄우도록 변경했다.
+- `_copy_excel_sheet_objects()`는 보이는 객체 수와 복사 성공 수를 반환해 호출자가 누락 여부를 판단할 수 있게 했다.
+- `scripts\goal_verify_v3.py`의 Excel 재구성 검증은 객체 복사 반환값까지 확인하도록 보강했다.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공
+- `py scripts\goal_verify_v3.py --clean` -> PASS 10, SKIP 0, FAIL 0
+- `build_security_pc.bat` 실행 -> 성공, 결과물 폴더 `DocumentExtractor_v3.exe`/`DocumentExtractor_v3_1.exe`/`DocumentExtractor_v3_517833e.exe`를 최신 동일 EXE로 교체
+- 최신 one-file EXE SHA256 -> `44313F26F0BC2E742DC08762CF5590005D48320E9F8302EAF66EA41DEA3CE003`
+- 최신 folder EXE SHA256 -> `D7482081DE6EE32B5CF0E5B2D418D0035B55D36B246A8DF26D193C9D577369CA`
+
+## 2026-05-31
+- 코드베이스 전반 버그 헌팅(4관점 병렬 리뷰 + 재현 검증) 후 검증된 버그만 수정했다.
+- [CRITICAL] 추출 예외 처리 6곳(`_extract_ppt/excel/hwp/word/batch/notepad`)에서 `except ... as e` 뒤 `root.after(0, lambda: ...str(e)...)`가 지연 실행될 때 `NameError`(e 자동 삭제)로 오류 안내가 사라지던 문제 수정. `error_message = str(e)` 고정 후 캡처. Python 3.10.11 재현 테스트로 확정.
+- [HIGH] `_handle_table` 셀 단위 `except: pass`를 셀 좌표 포함 로그로 바꿔 데이터 누락을 표면화.
+- [MEDIUM] `_handle_connector` 무로그 실패에 로그 추가.
+- [MEDIUM] 임시파일 누수: `_save_native_copy`/`_save_ppt_clipboard_package_copy`/`_save_ppt_slide_clone`/`_save_word_openxml_copy`/`_save_ppt_visual_copy` 5곳이 성공 경로에서 temp 파일을 안 지우던 것을 try/finally로 통일. `_make_local_temp_path` 호출처 8곳 전수 확인(정상 3곳: `_extract_ppt`/`_save_excel_as_openxml_copy`/`_save_word_as_docx_copy`).
+- [MEDIUM] `_add_batch_paths` 중복검사 키를 `os.path.abspath(path).lower()`로 통일(상대경로 중복 방지).
+- [MEDIUM] `scripts\goal_verify_v3.py` 열 너비 컬럼 키를 `chr(ord("A")+...)` → `get_column_letter()`로 교체(26열 초과 대응, import 추가).
+- false positive로 분류: 클립보드 EMF 핸들(`GetClipboardData(14)`)은 클립보드 소유라 `DeleteEnhMetaFile` 불필요.
+- 미수정(실제 위험 낮음): detect 함수 `CoUninitialize`가 try/finally 밖이나 예외를 삼키고 early-return이 없어 양 경로 모두 도달.
+- [MEDIUM] Word 런 `bold=False`(0)가 굵은 단락에서 상속으로 굵게 나오던 엣지 케이스 수정: `if X is not None and X != 9999999: run.font.X = bool(X)`로 bold/italic 명시 설정(`_collect_word_runs`는 -1/0/9999999/None 반환). underline/color는 0을 의도적으로 제외하는 다른 로직이라 미변경.
+- `py -m py_compile ppt_extractor_v3.py scripts\goal_verify_v3.py` -> 성공.
+- `py scripts\goal_verify_v3.py --clean` -> **PASS=10 SKIP=0 FAIL=0** (약 29초). 수정한 temp 누수(`ppt_native_copy`/`ppt_clipboard_package`/`word_openxml_copy`)·Excel 재구성(`excel_reconstruction_fallback: range=46x19 images=1 object_images=1`)·goal_verify 컬럼키(`get_column_letter`) 모두 회귀 없이 통과 확인.
+- Word `bold/italic` 수정 후 `goal_verify --clean` 재검증 -> **PASS=10 SKIP=0 FAIL=0** (회귀 없음).
+- `py -m PyInstaller --clean --noconfirm DocumentExtractor_v3.spec` -> 성공. `D:\OneDrive\코드작업\결과물\newppt\DocumentExtractor_v3.exe`(38,896,407 bytes) 교체.
+- 배포 EXE SHA256 -> `65944f8c15a21b3e079467ddab9b777306338fa2f606926b8f974b1fc282df74`
+
 ## Next
 1. Windows 환경에서 `build_security_pc.bat` 실행 후 최신 EXE/폴더형 EXE를 결과물 폴더에 교체
 2. 실제 사용자 문서로 Word/메모장 탭 수동 확인

@@ -23,7 +23,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-05-27-excel-range-v2"
+APP_BUILD_ID = "2026-05-28-excel-rebuild-safety"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -1286,13 +1286,12 @@ class DocumentExtractorV3:
             )
             self._publish_verified_file(temp_path, save_path, label)
             self.logger.log(f"{label} 원본 복사 저장 완료: {save_path}")
-        except Exception:
+        finally:
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except Exception:
                     pass
-            raise
 
     def _get_app_process_id(self, app):
         """Office 애플리케이션의 최상위 창 기준 프로세스 ID를 가져온다."""
@@ -1433,13 +1432,12 @@ class DocumentExtractorV3:
             self._write_ppt_clipboard_package_as_pptx(package_data, temp_path, target_ext)
             self._publish_verified_file(temp_path, save_path, "PPT 클립보드 슬라이드 패키지")
             self.logger.log(f"PPT 클립보드 슬라이드 패키지 복원 완료: {save_path}")
-        except Exception:
+        finally:
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except Exception:
                     pass
-            raise
 
     def _save_ppt_slide_clone(self, source_pres, save_path):
         """PowerPoint 내부 복사/붙여넣기로 슬라이드를 최대한 원본에 가깝게 복제한다."""
@@ -1504,17 +1502,15 @@ class DocumentExtractorV3:
             )
             self._publish_verified_file(temp_path, save_path, "PPT 슬라이드 복제")
             self.logger.log(f"PPT 슬라이드 복제 저장 완료: {save_path}")
-        except Exception:
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
-            raise
         finally:
             if target_pres is not None:
                 try:
                     target_pres.Close()
+                except Exception:
+                    pass
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
                 except Exception:
                     pass
 
@@ -1597,15 +1593,13 @@ class DocumentExtractorV3:
             visual_pres.save(temp_path)
             self._publish_verified_file(temp_path, save_path, "PPT 화면 그대로")
             self.logger.log(f"PPT 화면 그대로 이미지 저장 완료: {save_path}")
-        except Exception:
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except Exception:
                     pass
-            raise
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _try_save_ppt_visual_companion(self, source_pres, save_path):
         visual_path = self._add_filename_suffix(save_path, "_화면그대로")
@@ -1776,13 +1770,12 @@ class DocumentExtractorV3:
             self._write_word_flat_opc_as_docx(flat_xml, temp_path)
             self._publish_verified_file(temp_path, save_path, "Word WordOpenXML")
             self.logger.log(f"Word WordOpenXML 구조 복원 완료: {save_path}")
-        except Exception:
+        finally:
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except Exception:
                     pass
-            raise
 
     def _setup_ppt_tab(self):
         """PPT 탭 설정"""
@@ -2683,9 +2676,10 @@ class DocumentExtractorV3:
                 f"PPT 추출 완료!\n{save_path}\n\n총 {total_slides}장"))
 
         except Exception as e:
+            error_message = str(e)
             self.logger.error("PPT 추출 오류", e)
-            self.root.after(0, lambda: self.status_text.set(f"오류: {str(e)[:50]}"))
-            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{str(e)}"))
+            self.root.after(0, lambda: self.status_text.set(f"오류: {error_message[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{error_message}"))
 
         finally:
             if temp_dir and os.path.exists(temp_dir):
@@ -2923,6 +2917,7 @@ class DocumentExtractorV3:
 
             total_sheets = source_wb.Sheets.Count
             temp_dir = tempfile.mkdtemp()
+            rebuild_issues = []
             self.root.after(0, lambda: self.progress_var.set(5))
 
             for sheet_idx in range(1, total_sheets + 1):
@@ -2942,7 +2937,13 @@ class DocumentExtractorV3:
                 else:
                     new_sheet = new_wb.create_sheet(title=sheet_name)
 
-                self._copy_excel_sheet_objects(source_sheet, new_sheet, temp_dir, sheet_name)
+                copied_objects, visible_objects = self._copy_excel_sheet_objects(
+                    source_sheet, new_sheet, temp_dir, sheet_name
+                )
+                if visible_objects and copied_objects < visible_objects:
+                    rebuild_issues.append(
+                        f"{sheet_name}: 삽입 객체 {copied_objects}/{visible_objects}개만 복사됨"
+                    )
 
                 # 사용 범위 가져오기
                 try:
@@ -3086,6 +3087,7 @@ class DocumentExtractorV3:
 
                 except Exception as sheet_err:
                     self.logger.error(f"시트 '{sheet_name}' 처리 오류", sheet_err)
+                    rebuild_issues.append(f"{sheet_name}: {str(sheet_err)[:160]}")
                 finally:
                     self._log_elapsed(f"시트 '{sheet_name}' 처리 시간", sheet_start)
 
@@ -3095,24 +3097,46 @@ class DocumentExtractorV3:
 
             new_wb.save(save_path)
             self._validate_office_openxml(save_path, "Excel 재구성")
-            self.logger.log(f"저장 완료: {save_path}")
+            if rebuild_issues:
+                issue_text = self._format_excel_rebuild_issues(rebuild_issues)
+                self.logger.log(f"저장 완료(부분 완료/확인 필요): {save_path}")
+                self.logger.log(f"Excel 재구성 확인 필요 항목 {len(rebuild_issues)}개:\n{issue_text}")
+            else:
+                self.logger.log(f"저장 완료: {save_path}")
             self._log_elapsed("Excel 전체 추출 시간", extract_start)
 
             self.root.after(0, lambda: self.progress_var.set(100))
-            self.root.after(0, lambda: self.status_text.set("Excel 추출 완료!"))
-            self.root.after(0, lambda: messagebox.showinfo("완료",
-                f"Excel 추출 완료!\n{save_path}\n\n총 {total_sheets}시트"))
+            if rebuild_issues:
+                issue_text = self._format_excel_rebuild_issues(rebuild_issues)
+                self.root.after(0, lambda: self.status_text.set("Excel 부분 완료 - 확인 필요"))
+                self.root.after(0, lambda: messagebox.showwarning("부분 완료",
+                    f"Excel 재구성 파일을 저장했지만 일부 항목 확인이 필요합니다.\n"
+                    f"{save_path}\n\n"
+                    f"확인 필요:\n{issue_text}"))
+            else:
+                self.root.after(0, lambda: self.status_text.set("Excel 추출 완료!"))
+                self.root.after(0, lambda: messagebox.showinfo("완료",
+                    f"Excel 추출 완료!\n{save_path}\n\n총 {total_sheets}시트"))
 
         except Exception as e:
+            error_message = str(e)
             self.logger.error("Excel 추출 오류", e)
-            self.root.after(0, lambda: self.status_text.set(f"오류: {str(e)[:50]}"))
-            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{str(e)}"))
+            self.root.after(0, lambda: self.status_text.set(f"오류: {error_message[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{error_message}"))
 
         finally:
             if temp_dir and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
             self.root.after(0, lambda: self.excel_extract_button.config(state=tk.NORMAL))
             pythoncom.CoUninitialize()
+
+    def _format_excel_rebuild_issues(self, issues, limit=8):
+        shown = list(issues[:limit])
+        lines = [f"- {issue}" for issue in shown]
+        remaining = len(issues) - len(shown)
+        if remaining > 0:
+            lines.append(f"- 외 {remaining}개")
+        return "\n".join(lines)
 
     def _excel_find_cell(self, source_sheet, search_order, search_direction, look_ins=None):
         """서식만 묻은 UsedRange 대신 실제 값/수식 셀을 찾는다."""
@@ -3458,13 +3482,14 @@ class DocumentExtractorV3:
             shape_count = shapes.Count
         except Exception as e:
             self.logger.log(f"    시트 객체 목록 읽기 실패: {str(e)[:50]}")
-            return
+            return 0, 0
 
         if shape_count <= 0:
-            return
+            return 0, 0
 
         self.logger.log(f"    삽입 객체 복사 시작: {shape_count}개")
         copied_count = 0
+        visible_count = 0
 
         for shape_idx in range(1, shape_count + 1):
             try:
@@ -3474,6 +3499,7 @@ class DocumentExtractorV3:
                         continue
                 except Exception:
                     pass
+                visible_count += 1
 
                 img_path = self._excel_shape_to_image(shape, temp_dir, sheet_name, shape_idx)
                 if not img_path:
@@ -3504,7 +3530,8 @@ class DocumentExtractorV3:
             except Exception as e:
                 self.logger.log(f"    객체 {shape_idx} 복사 실패: {str(e)[:60]}")
 
-        self.logger.log(f"    삽입 객체 복사 완료: {copied_count}/{shape_count}개")
+        self.logger.log(f"    삽입 객체 복사 완료: {copied_count}/{visible_count}개")
+        return copied_count, visible_count
 
     def _excel_shape_to_image(self, source_shape, temp_dir, sheet_name, shape_idx):
         """Excel Shape를 클립보드 경유 이미지 파일로 저장한다."""
@@ -4089,8 +4116,8 @@ class DocumentExtractorV3:
                         except:
                             pass
 
-                    except:
-                        pass
+                    except Exception as cell_err:
+                        self.logger.log(f"    테이블 셀({r},{c}) 처리 실패: {str(cell_err)[:60]}")
             return True
         except Exception as e:
             self.logger.log(f"테이블 처리 실패: {str(e)[:60]}")
@@ -4114,7 +4141,8 @@ class DocumentExtractorV3:
             except:
                 pass
             return True
-        except:
+        except Exception as e:
+            self.logger.log(f"연결선 처리 실패: {str(e)[:60]}")
             return False
 
     def _handle_freeform(self, source_shape, target_slide, temp_dir, left, top, width, height):
@@ -4652,9 +4680,10 @@ class DocumentExtractorV3:
                     raise Exception(f"한글 저장 실패:\n{str(e2)}")
 
         except Exception as e:
+            error_message = str(e)
             self.logger.error("한글 추출 오류", e)
-            self.root.after(0, lambda: self.status_text.set(f"오류: {str(e)[:50]}"))
-            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{str(e)}"))
+            self.root.after(0, lambda: self.status_text.set(f"오류: {error_message[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{error_message}"))
 
         finally:
             self.root.after(0, lambda: self.hwp_extract_button.config(state=tk.NORMAL))
@@ -5158,10 +5187,10 @@ class DocumentExtractorV3:
                                                 run.font.name = fn
                                             if fs and fs > 0 and fs < 1000:
                                                 run.font.size = DocxPt(fs)
-                                            if b and b != 9999999:
-                                                run.font.bold = True
-                                            if it and it != 9999999:
-                                                run.font.italic = True
+                                            if b is not None and b != 9999999:
+                                                run.font.bold = bool(b)
+                                            if it is not None and it != 9999999:
+                                                run.font.italic = bool(it)
                                             if ul and ul != 0 and ul != 9999999:
                                                 run.font.underline = True
                                             if clr and clr != 0 and clr != 9999999:
@@ -5209,9 +5238,10 @@ class DocumentExtractorV3:
                 f"결과를 열어 원본과 비교해 주세요."))
 
         except Exception as e:
+            error_message = str(e)
             self.logger.error("Word 추출 오류", e)
-            self.root.after(0, lambda: self.status_text.set(f"오류: {str(e)[:50]}"))
-            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{str(e)}"))
+            self.root.after(0, lambda: self.status_text.set(f"오류: {error_message[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{error_message}"))
 
         finally:
             self.root.after(0, lambda: self.word_extract_button.config(state=tk.NORMAL))
@@ -5370,7 +5400,7 @@ class DocumentExtractorV3:
         added = 0
         seen = {os.path.abspath(path).lower() for path in self.batch_files}
         for path in self._expand_supported_drop_paths(paths):
-            key = path.lower()
+            key = os.path.abspath(path).lower()
             if key in seen:
                 continue
             self.batch_files.append(path)
@@ -5731,9 +5761,10 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.batch_status_text.set(summary))
             self.root.after(0, lambda: messagebox.showinfo("일괄 변환 완료", summary))
         except Exception as error:
+            error_message = str(error)
             self.logger.error("일괄 변환 오류", error)
-            self.root.after(0, lambda: self.status_text.set(f"일괄 변환 오류: {str(error)[:50]}"))
-            self.root.after(0, lambda: messagebox.showerror("오류", f"일괄 변환 중 오류:\n{str(error)}"))
+            self.root.after(0, lambda: self.status_text.set(f"일괄 변환 오류: {error_message[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"일괄 변환 중 오류:\n{error_message}"))
         finally:
             for key, (app, created) in apps.items():
                 self._restore_office_display_alerts(app, alert_states.get(key), f"{key} 일괄")
@@ -6013,9 +6044,10 @@ class DocumentExtractorV3:
                 f"메모장 추출 완료!\n{save_path}\n\n{len(text)}글자"))
 
         except Exception as e:
+            error_message = str(e)
             self.logger.error("메모장 추출 오류", e)
-            self.root.after(0, lambda: self.status_text.set(f"오류: {str(e)[:50]}"))
-            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{str(e)}"))
+            self.root.after(0, lambda: self.status_text.set(f"오류: {error_message[:50]}"))
+            self.root.after(0, lambda: messagebox.showerror("오류", f"추출 중 오류:\n{error_message}"))
 
         finally:
             self.root.after(0, lambda: self.notepad_extract_button.config(state=tk.NORMAL))
