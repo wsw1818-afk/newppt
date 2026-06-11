@@ -2289,7 +2289,7 @@ class DocumentExtractorV3:
         paths = self._parse_drop_paths(getattr(event, "data", ""))
         added = self._add_batch_paths(paths)
         if added:
-            self._select_document_view(5, detect=False)
+            self._select_document_view(self.content_frames.index(self.batch_tab), detect=False)
             self.status_text.set(f"일괄 변환 파일 {added}개 추가됨")
         else:
             self.batch_status_text.set("추가할 수 있는 파일이 없습니다.")
