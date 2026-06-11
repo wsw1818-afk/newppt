@@ -1,5 +1,6 @@
-✨ 중복 실행 방지(단일 인스턴스 mutex)
+✨ 한글 변환 중 보안 권한 팝업 자동 승인(감시 스레드)
 
-- 보안 PC에서 앱이 느리게 뜨거나 차단되는 듯해 여러 번 클릭 시 다중 프로세스가 뜨던 문제 방지.
-- _acquire_single_instance: named mutex로 이미 실행 중이면 '이미 실행 중입니다' 안내 후 종료.
-- pywin32 없거나 락 실패 시 그냥 진행(영향 없음).
+- RegisterModule이 회사 PC에서 효과 없어 권한 팝업이 그대로 뜨는 문제 대응.
+- _start_hwp_permission_watcher: 변환 동안 0.25s 간격으로 보안 팝업(#32770)을 감시.
+- _auto_approve_hwp_permission: '모두 허용/허용/예/확인' 버튼을 텍스트로 찾아 BM_CLICK(기본 버튼이 '차단'일 수 있어 허용 버튼을 명시 클릭).
+- _convert_hwp_file(직접/일괄)·_extract_hwp_from_file(탭) 두 경로에 watcher 적용, finally에서 중지.
