@@ -1,6 +1,6 @@
-✨ 한글 DRM(SCDS) 메모리 추출 극복 + HWP 탭 복원 (누적 6/4~6/11)
+✨ 한글 원본 파일 직접 Open 메모리 추출 + 추출 버튼→원본 자동 선택 유도 (보안PC 직접변환)
 
-- 한글: GetTextFile("HWPML2X")로 파일 저장 없이 완전 구조를 메모리 추출 → 새 문서 SetTextFile 재구성 → 일반 .hwp, 실패 시 .hwpml 직접 저장(3단계 폴백). SaveAs를 우회해 SCDS 재포장 회피(PPT slide.Copy / Word WordOpenXML과 동일 원리). 고아였던 HWP 탭을 사이드바에 복원, _do_detect를 데이터 기반으로 리팩터.
-- PDF: pypdf 기반 보안해제(평문/RC4/편집제한) + 전용 탭, 메뉴 순서 PDF↑.
-- 일괄변환: Office 예열·재사용 워커로 콜드스타트 제거.
-- 보안PC: cryptography(_rust.pyd)·cffi 번들 제외로 EDR 차단 회귀 복구.
+- 회사 PC 로그: 열린 한글이 ROT 미등록(GetActiveObject -2147221021)이라 COM 연결 불가 → 메모리 추출 미실행 → UI 저장(SCDS) 실패.
+- 해결: 원본 파일을 Dispatch 새 인스턴스로 hwp.Open → 보안모듈 복호화 → GetTextFile("HWPML2X") 메모리 추출(열린 문서 COM 단계 우회). 방법1/2/3을 _hwp_save_with_fallbacks로 공통화.
+- UX: 사용자가 '원본 찾기'를 안 눌러 직접 Open이 또 실행 안 됨 → 추출 버튼 클릭 시 원본 파일 선택창을 자동 표시하도록 변경, 버튼 라벨도 '원본 파일 선택 후 변환하기'로.
+- 신규: browse_hwp_source_path, _extract_hwp_from_file, _hwp_save_with_fallbacks, _extract_hwp(source_path=...).

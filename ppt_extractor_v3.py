@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-11-hwp-memory-rebuild"
+APP_BUILD_ID = "2026-06-11-hwp-autopick"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -265,6 +265,7 @@ class DocumentExtractorV3:
         # 한글 상태 변수
         self.hwp_doc_name = tk.StringVar(value="감지 중...")
         self.hwp_save_path = tk.StringVar(value="")
+        self.hwp_source_path = tk.StringVar(value="")
         self.hwp_list = []
         self.selected_hwp_index = tk.IntVar(value=0)
 
@@ -1732,6 +1733,82 @@ class DocumentExtractorV3:
         self.logger.log(f"한글 추출 완료({method_label}): {result_path}")
         self._log_elapsed("한글 전체 추출 시간", extract_start)
 
+    def _hwp_save_with_fallbacks(self, hwp, save_path, save_format, extract_start):
+        """연결된 한글 문서를 3단계 폴백으로 저장한다.
+
+        (1) 직접 SaveAs → (2) HWPML2X 메모리 재구성 → (3) HWPML2X 직접 .hwpml 기록.
+        SaveAs는 DRM에서 SCDS로 감기므로, 메모리 추출(GetTextFile) 경로가 본 우회책이다.
+        열린 문서 방식과 원본 파일 직접 Open 방식이 공유한다.
+        """
+        # 방법 1: 직접 SaveAs (정상 HWP면 성공, DRM이면 SCDS 헤더로 실패 처리됨)
+        try:
+            self.logger.log(f"방법1 직접 SaveAs 시도: {save_path}")
+            self._save_hwp_document(hwp, save_path, save_format)
+            self._hwp_extract_success(save_path, extract_start, "직접 저장")
+            return
+        except Exception as save_error:
+            self.logger.log(f"방법1 SaveAs 실패(보안 컨테이너 가능성): {str(save_error)[:150]}")
+
+        # 방법 2: HWPML2X 메모리 재구성 → 일반 HWP (원본 구조 보존, 파일 저장 우회)
+        self.root.after(0, lambda: self.status_text.set("메모리에서 원본 구조 추출 중..."))
+        self.root.after(0, lambda: self.progress_var.set(60))
+        try:
+            self._hwp_rebuild_via_hwpml(hwp, save_path, save_format)
+            self._hwp_extract_success(save_path, extract_start, "메모리 재구성")
+            return
+        except Exception as rebuild_error:
+            self.logger.log(f"방법2 HWPML2X 재구성 실패: {str(rebuild_error)[:150]}")
+
+        # 방법 3: HWPML2X를 파이썬이 직접 .hwpml로 기록 (한글 SaveAs 미사용, 가장 확실한 우회)
+        self.root.after(0, lambda: self.status_text.set("원본 구조를 HWPML로 저장 중..."))
+        self.root.after(0, lambda: self.progress_var.set(80))
+        try:
+            hwpml_path = self._hwp_save_hwpml_direct(hwp, save_path)
+            self._hwp_extract_success(
+                hwpml_path, extract_start, "HWPML 직접 저장",
+                extra="원본 구조를 보존한 .hwpml 파일입니다. 한글에서 열어 .hwp로 다시 저장할 수 있습니다.",
+            )
+            return
+        except Exception as hwpml_error:
+            self.logger.log(f"방법3 HWPML 직접 저장 실패: {str(hwpml_error)[:150]}")
+            raise Exception(
+                "한글 변환에 실패했습니다.\n\n"
+                "직접 저장·메모리 재구성·HWPML 추출이 모두 막혔습니다.\n"
+                "회사 보안(DRM)이 메모리 추출까지 차단하는 환경일 수 있습니다."
+            )
+
+    def _extract_hwp_from_file(self, source_path, save_path, save_format, extract_start):
+        """원본 HWP 파일을 새 한글 인스턴스로 직접 열어 메모리에서 추출/재구성한다.
+
+        열린 문서 COM 연결(ROT)이 막힌 환경 대응: Dispatch로 새 인스턴스를 만들고 파일을
+        Open하면 보안 모듈이 사용자 권한으로 복호화하므로, GetTextFile로 메모리에서 내용을
+        빼내 SaveAs(SCDS 재포장)를 우회한다.
+        """
+        if not os.path.exists(source_path):
+            raise Exception(f"원본 파일을 찾을 수 없습니다: {source_path}")
+
+        self.root.after(0, lambda: self.status_text.set("새 한글 인스턴스로 원본 여는 중..."))
+        self.root.after(0, lambda: self.progress_var.set(25))
+        hwp, created = self._get_hwp_app(allow_dispatch=True)
+        self.logger.log(f"한글 인스턴스 확보(created={created}), 원본 Open 시도: {source_path}")
+        try:
+            try:
+                opened = hwp.Open(source_path, "HWP", "forceopen:true")
+            except Exception as open_error:
+                self.logger.log(f"Open(3인자) 실패, 단순 Open 재시도: {str(open_error)[:100]}")
+                opened = hwp.Open(source_path)
+            if opened is False:
+                raise Exception("한글이 원본 파일을 열지 못했습니다(보안 차단 가능성).")
+            self.logger.log("원본 파일 Open 성공 → 메모리 추출 단계로")
+            self.root.after(0, lambda: self.progress_var.set(45))
+            self._hwp_save_with_fallbacks(hwp, save_path, save_format, extract_start)
+        finally:
+            if created:
+                try:
+                    hwp.Quit()
+                except Exception:
+                    pass
+
     def _copy_word_document_file(self, source_doc, save_path):
         """저장된 Word 원본 파일을 원본 상태 변경 없이 복사한다."""
         try:
@@ -1986,8 +2063,19 @@ class DocumentExtractorV3:
         """한글 탭 설정"""
         tab = self.hwp_tab
 
-        # 문서 정보 프레임
-        info_frame = ttk.LabelFrame(tab, text="열린 한글 문서 선택", padding="10")
+        # ① 원본 파일 직접 선택 (회사 보안 PC 권장 경로)
+        source_frame = ttk.LabelFrame(tab, text="① 원본 한글 파일 직접 선택 (보안 PC 권장)", padding="10")
+        source_frame.pack(fill=tk.X, pady=5, padx=5)
+        ttk.Label(source_frame,
+                  text="원본 파일을 고르면 새 한글 인스턴스로 열어 메모리에서 추출합니다(파일 저장 우회).",
+                  foreground="#555").pack(anchor=tk.W, pady=(0, 6))
+        source_inner = ttk.Frame(source_frame)
+        source_inner.pack(fill=tk.X)
+        ttk.Entry(source_inner, textvariable=self.hwp_source_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(source_inner, text="원본 찾기", command=self.browse_hwp_source_path).pack(side=tk.LEFT)
+
+        # ② 대안: 열린 한글 문서 선택
+        info_frame = ttk.LabelFrame(tab, text="② 또는 열린 한글 문서 선택", padding="10")
         info_frame.pack(fill=tk.X, pady=5, padx=5)
 
         # 한글 선택 콤보박스
@@ -2021,7 +2109,7 @@ class DocumentExtractorV3:
                         variable=self.hwp_save_format, value="hwpx").pack(anchor=tk.W)
 
         # 추출 버튼
-        self.hwp_extract_button = ttk.Button(tab, text="새 한글 문서로 내보내기",
+        self.hwp_extract_button = ttk.Button(tab, text="원본 파일 선택 후 변환하기",
                                              command=self.start_hwp_extraction,
                                              style="Accent.TButton")
         self.hwp_extract_button.pack(pady=10)
@@ -4481,6 +4569,22 @@ class DocumentExtractorV3:
 
     # ========== 한글 관련 메서드 ==========
 
+    def browse_hwp_source_path(self):
+        """원본 한글 파일 직접 선택 (보안 PC 권장 경로)"""
+        self.logger.log("한글 원본 파일 선택 대화상자 열기")
+        path = filedialog.askopenfilename(
+            title="원본 한글 파일 선택",
+            filetypes=[("한글 문서", "*.hwp *.hwpx"), ("모든 파일", "*.*")],
+        )
+        if not path:
+            return
+        self.hwp_source_path.set(path)
+        self.logger.log(f"한글 원본 파일 선택됨: {path}")
+        if not self.hwp_save_path.get().strip():
+            stem = os.path.splitext(path)[0]
+            ext = ".hwpx" if self.hwp_save_format.get() == "hwpx" else ".hwp"
+            self.hwp_save_path.set(f"{stem}_복사본{ext}")
+
     def browse_hwp_save_path(self):
         """한글 저장 경로 선택"""
         self.logger.log("한글 저장 경로 선택 대화상자 열기")
@@ -4636,15 +4740,40 @@ class DocumentExtractorV3:
         """한글 추출 시작"""
         self.logger.log("한글 추출 시작 버튼 클릭")
 
-        save_path = self.hwp_save_path.get()
+        source_path = self.hwp_source_path.get().strip()
+
+        # 원본 미선택 시 원본 파일 선택을 먼저 유도한다.
+        # (보안 PC에선 열린 문서 COM 연결이 막혀 직접 Open이 사실상 유일한 경로다.)
+        if not source_path:
+            self.logger.log("원본 미선택 → 원본 파일 선택 대화상자 자동 표시")
+            self.browse_hwp_source_path()
+            source_path = self.hwp_source_path.get().strip()
+
+        save_path = self.hwp_save_path.get().strip()
         save_format = self.hwp_save_format.get()
 
+        # 원본 직접 선택 모드 (권장: 새 한글 인스턴스로 Open → 메모리 추출)
+        if source_path:
+            if not os.path.exists(source_path):
+                messagebox.showwarning("경고", "원본 파일을 찾을 수 없습니다.")
+                return
+            if not save_path:
+                messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
+                return
+            self.hwp_extract_button.config(state=tk.DISABLED)
+            self.progress_var.set(0)
+            thread = threading.Thread(
+                target=self._extract_hwp, args=(save_path, save_format, None, source_path))
+            thread.daemon = True
+            thread.start()
+            return
+
+        # 원본 선택을 취소한 경우 → 열린 문서 모드 폴백
         if not save_path:
             messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
             return
-
         if self.hwp_doc_name.get() == "열린 한글 없음" or not self.hwp_list:
-            messagebox.showwarning("경고", "열린 한글 문서가 없습니다.")
+            messagebox.showwarning("경고", "원본 파일을 선택하거나, 한글에서 문서를 먼저 열어주세요.")
             return
 
         selected_idx = self.hwp_combo.current()
@@ -4659,13 +4788,19 @@ class DocumentExtractorV3:
         thread.daemon = True
         thread.start()
 
-    def _extract_hwp(self, save_path, save_format, hwp_item=None):
+    def _extract_hwp(self, save_path, save_format, hwp_item=None, source_path=None):
         """한글 추출 (백그라운드)"""
         self.logger.log("=== 한글 추출 프로세스 시작 ===")
         extract_start = time.perf_counter()
         pythoncom.CoInitialize()
 
         try:
+            # 원본 파일 직접 변환 모드 (보안 PC 권장: 열린 문서 COM 연결을 건너뜀)
+            if source_path:
+                self.logger.log(f"원본 파일 직접 변환 모드: {source_path}")
+                self._extract_hwp_from_file(source_path, save_path, save_format, extract_start)
+                return
+
             self.root.after(0, lambda: self.status_text.set("원본 한글 연결 중..."))
 
             try:
@@ -4697,42 +4832,8 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.status_text.set("새 문서로 저장 중..."))
             self.root.after(0, lambda: self.progress_var.set(30))
 
-            # 방법 1: 직접 SaveAs (정상 HWP면 성공, DRM이면 SCDS 헤더로 실패 처리됨)
-            try:
-                self.logger.log(f"방법1 직접 SaveAs 시도: {save_path}")
-                self._save_hwp_document(hwp, save_path, save_format)
-                self._hwp_extract_success(save_path, extract_start, "직접 저장")
-                return
-            except Exception as save_error:
-                self.logger.log(f"방법1 SaveAs 실패(보안 컨테이너 가능성): {str(save_error)[:150]}")
-
-            # 방법 2: HWPML2X 메모리 재구성 → 일반 HWP (원본 구조 보존, 파일 저장 우회로 DRM 회피)
-            self.root.after(0, lambda: self.status_text.set("메모리에서 원본 구조 추출 중..."))
-            self.root.after(0, lambda: self.progress_var.set(55))
-            try:
-                self._hwp_rebuild_via_hwpml(hwp, save_path, save_format)
-                self._hwp_extract_success(save_path, extract_start, "메모리 재구성")
-                return
-            except Exception as rebuild_error:
-                self.logger.log(f"방법2 HWPML2X 재구성 실패: {str(rebuild_error)[:150]}")
-
-            # 방법 3: HWPML2X를 파이썬이 직접 .hwpml로 저장 (한글 SaveAs 미사용, 가장 확실한 우회)
-            self.root.after(0, lambda: self.status_text.set("원본 구조를 HWPML로 저장 중..."))
-            self.root.after(0, lambda: self.progress_var.set(75))
-            try:
-                hwpml_path = self._hwp_save_hwpml_direct(hwp, save_path)
-                self._hwp_extract_success(
-                    hwpml_path, extract_start, "HWPML 직접 저장",
-                    extra="원본 구조를 보존한 .hwpml 파일입니다. 한글에서 열어 .hwp로 다시 저장할 수 있습니다.",
-                )
-                return
-            except Exception as hwpml_error:
-                self.logger.log(f"방법3 HWPML 직접 저장 실패: {str(hwpml_error)[:150]}")
-                raise Exception(
-                    "한글 변환에 실패했습니다.\n\n"
-                    "직접 저장·메모리 재구성·HWPML 추출이 모두 막혔습니다.\n"
-                    "회사 보안(DRM)이 메모리 추출까지 차단하는 환경일 수 있습니다."
-                )
+            # 열린 문서 연결 성공 → 3단계 폴백 저장 (직접 SaveAs → 메모리 재구성 → HWPML 직접)
+            self._hwp_save_with_fallbacks(hwp, save_path, save_format, extract_start)
 
         except Exception as e:
             error_message = str(e)
