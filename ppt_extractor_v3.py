@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-11-hwp-ui"
+APP_BUILD_ID = "2026-06-11-hwp-manual"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -639,75 +639,12 @@ class DocumentExtractorV3:
         return self._connect_com_app("Excel.Application", "Excel", allow_dispatch=allow_dispatch)
 
     def _get_hwp_app(self, allow_dispatch=True):
-        hwp, created = self._connect_com_app(
+        return self._connect_com_app(
             "HWPFrame.HwpObject",
             "한글",
             allow_dispatch=allow_dispatch,
             use_get_active=False,
         )
-        self._hwp_suppress_security_prompt(hwp)
-        return hwp, created
-
-    def _hwp_suppress_security_prompt(self, hwp):
-        """한글 자동화 파일 접근 보안 팝업을 자동 수락 처리한다(변환 전 권한 묻는 대화상자 억제).
-
-        FilePathCheckerModule을 등록하면 스크립트의 파일 접근에 매번 묻던 보안 승인 창이
-        뜨지 않는다. 모듈 DLL이 없는 환경에서는 실패하지만 변환 자체에는 영향 없다.
-        """
-        try:
-            hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
-            self.logger.log("한글 보안 모듈 등록: 파일 접근 권한 팝업 자동 수락")
-        except Exception as reg_error:
-            self.logger.log(f"FilePathCheckerModule 등록 실패(무시): {str(reg_error)[:80]}")
-
-    def _find_button_by_texts(self, dialog_hwnd, texts):
-        """대화상자 자식 중 지정 텍스트를 포함한 Button 핸들을 찾는다."""
-        user32 = ctypes.windll.user32
-        child = None
-        while True:
-            child = user32.FindWindowExW(dialog_hwnd, child, None, None)
-            if not child:
-                break
-            if self._get_window_class_name(child) == "Button":
-                btn_text = self._get_window_title(child) or ""
-                if any(token in btn_text for token in texts):
-                    return child
-        return None
-
-    def _auto_approve_hwp_permission(self):
-        """떠 있는 한글 보안 권한 팝업에서 '모두 허용/허용' 버튼을 자동 클릭한다.
-
-        기본 버튼이 '차단'일 수 있으므로 허용 계열 버튼을 텍스트로 찾아 누른다.
-        """
-        user32 = ctypes.windll.user32
-        for hwnd, title in self._get_visible_windows():
-            if self._get_window_class_name(hwnd) != "#32770":
-                continue
-            button = self._find_button_by_texts(
-                hwnd, ("모두 허용", "허용", "예", "확인")
-            )
-            if button:
-                user32.SendMessageW(button, 0x00F5, 0, 0)  # BM_CLICK
-                self.logger.log(f"한글 보안 권한 팝업 자동 승인: title='{title}'")
-                return True
-        return False
-
-    def _start_hwp_permission_watcher(self):
-        """변환 동안 한글 보안 권한 팝업을 감시해 자동 승인하는 백그라운드 스레드를 시작한다.
-
-        반환된 Event를 set()하면 감시가 멈춘다.
-        """
-        stop_event = threading.Event()
-
-        def _watch():
-            while not stop_event.wait(0.25):
-                try:
-                    self._auto_approve_hwp_permission()
-                except Exception:
-                    pass
-
-        threading.Thread(target=_watch, daemon=True).start()
-        return stop_event
 
     def _get_hwp_app_for_extraction(self):
         """추출용 HWP 연결. 새 빈 문서가 만들어지는 연결은 차단한다."""
@@ -1832,7 +1769,6 @@ class DocumentExtractorV3:
         if not os.path.exists(source_path):
             raise Exception(f"원본 파일을 찾을 수 없습니다: {source_path}")
         save_format = "hwpx" if os.path.splitext(save_path)[1].lower() == ".hwpx" else "hwp"
-        permission_watcher = self._start_hwp_permission_watcher()
         hwp, created = self._get_hwp_app(allow_dispatch=True)
         self.logger.log(f"한글 파일 변환 시작(created={created}): {source_path}")
         try:
@@ -1846,7 +1782,6 @@ class DocumentExtractorV3:
             result_path, method = self._hwp_write_with_fallbacks(hwp, save_path, save_format)
             self.logger.log(f"한글 파일 변환 완료({method}): {result_path}")
         finally:
-            permission_watcher.set()
             if created:
                 try:
                     hwp.Quit()
@@ -1883,7 +1818,6 @@ class DocumentExtractorV3:
 
         self.root.after(0, lambda: self.status_text.set("새 한글 인스턴스로 원본 여는 중..."))
         self.root.after(0, lambda: self.progress_var.set(25))
-        permission_watcher = self._start_hwp_permission_watcher()
         hwp, created = self._get_hwp_app(allow_dispatch=True)
         self.logger.log(f"한글 인스턴스 확보(created={created}), 원본 Open 시도: {source_path}")
         try:
@@ -1898,7 +1832,6 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.progress_var.set(45))
             self._hwp_save_with_fallbacks(hwp, save_path, save_format, extract_start)
         finally:
-            permission_watcher.set()
             if created:
                 try:
                     hwp.Quit()

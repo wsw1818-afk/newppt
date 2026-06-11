@@ -1,6 +1,8 @@
-✨ 한글 변환 중 보안 권한 팝업 자동 승인(감시 스레드)
+⏪ 한글 권한 팝업 자동화 제거 — 한글 2024서 모듈 미작동, A 수동 방식 유지
 
-- RegisterModule이 회사 PC에서 효과 없어 권한 팝업이 그대로 뜨는 문제 대응.
-- _start_hwp_permission_watcher: 변환 동안 0.25s 간격으로 보안 팝업(#32770)을 감시.
-- _auto_approve_hwp_permission: '모두 허용/허용/예/확인' 버튼을 텍스트로 찾아 BM_CLICK(기본 버튼이 '차단'일 수 있어 허용 버튼을 명시 클릭).
-- _convert_hwp_file(직접/일괄)·_extract_hwp_from_file(탭) 두 경로에 watcher 적용, finally에서 중지.
+- FilePathCheckerModule: 한글 2024(v13)에서 pyhwpx 표준으로도 RegisterModule=False(보안 강화로 막힘) → 제거.
+- A키 watcher: 자동화 한글이 숨김(visible=False)이라 미작동 + Open을 실패(False)시키는 역효과 → 제거.
+- _get_hwp_app 원복(suppress 호출 제거), register/suppress/watcher/find_button 메서드 및 _convert/_extract의 watcher 배선 전부 삭제. DLL도 삭제.
+- 변환 핵심(GetTextFile HWPML2X 메모리 추출)은 그대로 유지 — 개발 PC에서 41만 자 추출 검증됨.
+- 보안 팝업이 뜨면 사용자가 'A'(모두 허용)로 승인하는 방식(회사 PC에서 이미 변환되던 흐름).
+- APP_BUILD_ID=2026-06-11-hwp-manual.
