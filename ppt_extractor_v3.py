@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-11-hwp-unify"
+APP_BUILD_ID = "2026-06-11-hwp-ui"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -639,12 +639,26 @@ class DocumentExtractorV3:
         return self._connect_com_app("Excel.Application", "Excel", allow_dispatch=allow_dispatch)
 
     def _get_hwp_app(self, allow_dispatch=True):
-        return self._connect_com_app(
+        hwp, created = self._connect_com_app(
             "HWPFrame.HwpObject",
             "한글",
             allow_dispatch=allow_dispatch,
             use_get_active=False,
         )
+        self._hwp_suppress_security_prompt(hwp)
+        return hwp, created
+
+    def _hwp_suppress_security_prompt(self, hwp):
+        """한글 자동화 파일 접근 보안 팝업을 자동 수락 처리한다(변환 전 권한 묻는 대화상자 억제).
+
+        FilePathCheckerModule을 등록하면 스크립트의 파일 접근에 매번 묻던 보안 승인 창이
+        뜨지 않는다. 모듈 DLL이 없는 환경에서는 실패하지만 변환 자체에는 영향 없다.
+        """
+        try:
+            hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
+            self.logger.log("한글 보안 모듈 등록: 파일 접근 권한 팝업 자동 수락")
+        except Exception as reg_error:
+            self.logger.log(f"FilePathCheckerModule 등록 실패(무시): {str(reg_error)[:80]}")
 
     def _get_hwp_app_for_extraction(self):
         """추출용 HWP 연결. 새 빈 문서가 만들어지는 연결은 차단한다."""
@@ -2092,38 +2106,40 @@ class DocumentExtractorV3:
         """한글 탭 설정"""
         tab = self.hwp_tab
 
-        # 원본 파일 직접 선택 (새 한글 인스턴스로 열어 메모리 추출 — 회사 보안 PC 대응)
-        source_frame = ttk.LabelFrame(tab, text="원본 한글 파일 선택", padding="10")
-        source_frame.pack(fill=tk.X, pady=5, padx=5)
-        ttk.Label(source_frame,
-                  text="원본 파일을 고르면 새 한글 인스턴스로 열어 메모리에서 추출합니다(파일 저장 우회).",
-                  foreground="#555").pack(anchor=tk.W, pady=(0, 6))
-        source_inner = ttk.Frame(source_frame)
-        source_inner.pack(fill=tk.X)
-        self.hwp_source_entry = ttk.Entry(source_inner, textvariable=self.hwp_source_path, width=45)
-        self.hwp_source_entry.pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(source_inner, text="원본 찾기", command=self.browse_hwp_source_path).pack(side=tk.LEFT)
+        info_frame = self._create_section(tab, "원본 한글 파일 선택")
+        ttk.Label(
+            info_frame,
+            text="원본 .hwp 파일을 고르면 새 한글 인스턴스로 열어 메모리에서 추출합니다(보안 PC 대응, 파일 저장 우회).\n"
+                 "파일을 이 칸에 끌어다 놓아도 됩니다.",
+            font=("맑은 고딕", 9), justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=2)
 
-        # 저장 경로 프레임
-        path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
-        path_frame.pack(fill=tk.X, pady=5, padx=5)
+        source_inner = ttk.Frame(info_frame, style="Card.TFrame")
+        source_inner.pack(fill=tk.X, pady=5)
+        ttk.Label(source_inner, text="한글 선택:", width=12).pack(side=tk.LEFT)
+        self.hwp_source_entry = ttk.Entry(source_inner, textvariable=self.hwp_source_path,
+                                          width=45, state="readonly")
+        self.hwp_source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(source_inner, text="찾아보기", command=self.browse_hwp_source_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
+        path_frame = self._create_section(tab, "새 파일 저장 위치")
         path_inner = ttk.Frame(path_frame)
         path_inner.pack(fill=tk.X)
-        ttk.Entry(path_inner, textvariable=self.hwp_save_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(path_inner, text="찾아보기", command=self.browse_hwp_save_path).pack(side=tk.LEFT)
+        ttk.Entry(path_inner, textvariable=self.hwp_save_path, width=45).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(path_inner, text="찾아보기", command=self.browse_hwp_save_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
 
-        # 저장 형식 프레임
-        format_frame = ttk.LabelFrame(tab, text="저장 형식", padding="10")
-        format_frame.pack(fill=tk.X, pady=5, padx=5)
-
+        format_frame = self._create_section(tab, "저장 형식")
         self.hwp_save_format = tk.StringVar(value="hwp")
-        ttk.Radiobutton(format_frame, text="HWP (한글 문서)",
-                        variable=self.hwp_save_format, value="hwp").pack(anchor=tk.W)
-        ttk.Radiobutton(format_frame, text="HWPX (한글 2014 이상)",
-                        variable=self.hwp_save_format, value="hwpx").pack(anchor=tk.W)
+        format_inner = ttk.Frame(format_frame)
+        format_inner.pack(fill=tk.X)
+        ttk.Radiobutton(format_inner, text="HWP (한글 문서)",
+                        variable=self.hwp_save_format, value="hwp").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(format_inner, text="HWPX (한글 2014 이상)",
+                        variable=self.hwp_save_format, value="hwpx").pack(side=tk.LEFT)
 
-        # 추출 버튼
         self.hwp_extract_button = ttk.Button(tab, text="원본 파일 선택 후 변환하기",
                                              command=self.start_hwp_extraction,
                                              style="Accent.TButton")

@@ -1,6 +1,5 @@
-♻️ 한글 탭에서 회사 PC에서 안 되는 '열린 문서 선택(②)' 제거, 원본 파일 선택만 남김
+💄 한글 탭 디자인을 다른 탭(카드형)과 통일 + 변환 시 파일 접근 권한 팝업 자동 수락
 
-- 회사 보안 PC는 열린 한글 COM 연결(ROT 미등록)이 안 돼 ② 경로가 항상 실패 → 혼란만 유발.
-- _setup_hwp_tab에서 ② 콤보/감지 UI 제거, ① 번호 떼고 '원본 한글 파일 선택'으로 단순화.
-- doc_views 한글 감지함수 None(탭 진입 시 감지 안 함), _do_detect에 한글 안내 추가.
-- start_hwp_extraction 열린문서 폴백 제거 → 원본 미선택 시 경고로 종료.
+- 디자인: ttk.LabelFrame → _create_section(카드형) + Card.TFrame + Secondary/Accent.TButton으로 PDF 탭과 동일하게. 한글 탭만 튀던 문제 해결.
+- 권한: _hwp_suppress_security_prompt 추가(_get_hwp_app에서 호출) → RegisterModule("FilePathCheckDLL","FilePathCheckerModule")로 파일 접근 보안 승인 창 자동 수락. 모듈 없으면 무시.
+- APP_BUILD_ID=2026-06-11-hwp-ui.
