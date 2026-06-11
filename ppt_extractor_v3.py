@@ -419,7 +419,7 @@ class DocumentExtractorV3:
             ("PowerPoint", "PPT", "슬라이드/도형 보존", self.detect_open_ppt),
             ("Excel", "XLS", "시트/도형 보존", self.detect_open_excel),
             ("Word", "DOC", "문서 구조 보존", self.detect_open_word),
-            ("한글", "HWP", "문서 구조 보존", self.detect_open_hwp),
+            ("한글", "HWP", "문서 구조 보존", None),
             ("메모장", "TXT", "텍스트 추출", self.detect_open_notepad),
             ("PDF", "PDF", "보안 해제", None),
             ("일괄 변환", "ALL", "파일 묶음 처리", None),
@@ -2092,8 +2092,8 @@ class DocumentExtractorV3:
         """한글 탭 설정"""
         tab = self.hwp_tab
 
-        # ① 원본 파일 직접 선택 (회사 보안 PC 권장 경로)
-        source_frame = ttk.LabelFrame(tab, text="① 원본 한글 파일 직접 선택 (보안 PC 권장)", padding="10")
+        # 원본 파일 직접 선택 (새 한글 인스턴스로 열어 메모리 추출 — 회사 보안 PC 대응)
+        source_frame = ttk.LabelFrame(tab, text="원본 한글 파일 선택", padding="10")
         source_frame.pack(fill=tk.X, pady=5, padx=5)
         ttk.Label(source_frame,
                   text="원본 파일을 고르면 새 한글 인스턴스로 열어 메모리에서 추출합니다(파일 저장 우회).",
@@ -2103,21 +2103,6 @@ class DocumentExtractorV3:
         self.hwp_source_entry = ttk.Entry(source_inner, textvariable=self.hwp_source_path, width=45)
         self.hwp_source_entry.pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(source_inner, text="원본 찾기", command=self.browse_hwp_source_path).pack(side=tk.LEFT)
-
-        # ② 대안: 열린 한글 문서 선택
-        info_frame = ttk.LabelFrame(tab, text="② 또는 열린 한글 문서 선택", padding="10")
-        info_frame.pack(fill=tk.X, pady=5, padx=5)
-
-        # 한글 선택 콤보박스
-        select_frame = ttk.Frame(info_frame)
-        select_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(select_frame, text="문서 선택:", width=12).pack(side=tk.LEFT)
-        self.hwp_combo = ttk.Combobox(select_frame, state="readonly", width=40)
-        self.hwp_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.hwp_combo.bind("<<ComboboxSelected>>", self.on_hwp_selected)
-
-        # 새로고침 버튼
-        ttk.Button(info_frame, text="다시 감지", command=self.detect_open_hwp).pack(pady=(10, 0))
 
         # 저장 경로 프레임
         path_frame = ttk.LabelFrame(tab, text="새 파일 저장 위치", padding="10")
@@ -2199,6 +2184,8 @@ class DocumentExtractorV3:
         detect_fn = self.doc_views[current_tab][3]
         if detect_fn is not None:
             detect_fn()
+        elif self.content_frames[current_tab] is self.hwp_tab:
+            self.status_text.set("원본 한글 파일을 선택하세요")
         elif self.content_frames[current_tab] is self.pdf_tab:
             self.status_text.set("보안 해제할 PDF 파일을 선택하세요")
         elif self.content_frames[current_tab] is self.batch_tab:
@@ -4807,25 +4794,8 @@ class DocumentExtractorV3:
             thread.start()
             return
 
-        # 원본 선택을 취소한 경우 → 열린 문서 모드 폴백
-        if not save_path:
-            messagebox.showwarning("경고", "저장 경로를 선택해주세요.")
-            return
-        if self.hwp_doc_name.get() == "열린 한글 없음" or not self.hwp_list:
-            messagebox.showwarning("경고", "원본 파일을 선택하거나, 한글에서 문서를 먼저 열어주세요.")
-            return
-
-        selected_idx = self.hwp_combo.current()
-        if selected_idx < 0 or selected_idx >= len(self.hwp_list):
-            selected_idx = 0
-        hwp_item = self.hwp_list[selected_idx]
-
-        self.hwp_extract_button.config(state=tk.DISABLED)
-        self.progress_var.set(0)
-
-        thread = threading.Thread(target=self._extract_hwp, args=(save_path, save_format, hwp_item))
-        thread.daemon = True
-        thread.start()
+        # 원본을 선택하지 않으면(취소) 종료 — 회사 보안 PC에선 원본 직접 Open만 가능하다.
+        messagebox.showwarning("경고", "원본 한글 파일을 선택해주세요.")
 
     def _extract_hwp(self, save_path, save_format, hwp_item=None, source_path=None):
         """한글 추출 (백그라운드)"""

@@ -1,6 +1,6 @@
-✨ 한글 드래그앤드롭·일괄변환 통합 + SAC 우회 설치형(Inno Setup) 추가
+♻️ 한글 탭에서 회사 PC에서 안 되는 '열린 문서 선택(②)' 제거, 원본 파일 선택만 남김
 
-- 한글 통합: 저장 로직을 _hwp_write_with_fallbacks(공용)로 분리, _convert_hwp_file로 원본 Open→메모리 추출. _batch_file_kind/_convert_direct_file/_extract_batch에 hwp 분기 → PPT/Excel/Word/PDF처럼 드래그앤드롭·일괄변환 지원. 한글 탭에 드롭 바인딩.
-- 설치형: installer.iss 추가. PyInstaller onedir(폴더배포)를 Inno Setup으로 Setup.exe 1개 패키징. 설치 폴더에서 직접 실행 → %TEMP% 자가추출 없어 Windows Smart App Control 통과(스샷/녹취 폴더배포와 동일 원리). PrivilegesRequired=lowest(관리자 불필요), 제거 시 설치폴더 전체 정리.
-- version_info.txt + spec: exe 버전 메타데이터 추가(부가).
-- 검증: py_compile + 통합 스모크 + goal_verify PASS=10.
+- 회사 보안 PC는 열린 한글 COM 연결(ROT 미등록)이 안 돼 ② 경로가 항상 실패 → 혼란만 유발.
+- _setup_hwp_tab에서 ② 콤보/감지 UI 제거, ① 번호 떼고 '원본 한글 파일 선택'으로 단순화.
+- doc_views 한글 감지함수 None(탭 진입 시 감지 안 함), _do_detect에 한글 안내 추가.
+- start_hwp_extraction 열린문서 폴백 제거 → 원본 미선택 시 경고로 종료.
