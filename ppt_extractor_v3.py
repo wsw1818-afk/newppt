@@ -6606,7 +6606,36 @@ def write_startup_error(exc):
     return None
 
 
+def _acquire_single_instance():
+    """이미 실행 중이면 안내 후 종료한다(보안 PC에서 여러 번 클릭 시 다중 프로세스 방지).
+
+    성공 시 mutex 핸들을 반환해 프로세스 종료까지 유지한다(GC 방지를 위해 호출부에서 보관).
+    pywin32가 없거나 락에 실패하면 None을 돌려주고 그냥 진행한다.
+    """
+    try:
+        import win32event
+        import win32api
+        import winerror
+    except Exception:
+        return None
+    try:
+        mutex = win32event.CreateMutex(None, False, "DocumentExtractorV3_SingleInstance")
+        if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+            try:
+                warn_root = tk.Tk()
+                warn_root.withdraw()
+                messagebox.showinfo("문서 추출기", "이미 실행 중입니다.")
+                warn_root.destroy()
+            except Exception:
+                pass
+            sys.exit(0)
+        return mutex
+    except Exception:
+        return None
+
+
 if __name__ == "__main__":
+    _single_instance_mutex = _acquire_single_instance()
     try:
         check_dependencies()
         app = DocumentExtractorV3()

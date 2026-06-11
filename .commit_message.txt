@@ -1,5 +1,5 @@
-💄 한글 탭 디자인을 다른 탭(카드형)과 통일 + 변환 시 파일 접근 권한 팝업 자동 수락
+✨ 중복 실행 방지(단일 인스턴스 mutex)
 
-- 디자인: ttk.LabelFrame → _create_section(카드형) + Card.TFrame + Secondary/Accent.TButton으로 PDF 탭과 동일하게. 한글 탭만 튀던 문제 해결.
-- 권한: _hwp_suppress_security_prompt 추가(_get_hwp_app에서 호출) → RegisterModule("FilePathCheckDLL","FilePathCheckerModule")로 파일 접근 보안 승인 창 자동 수락. 모듈 없으면 무시.
-- APP_BUILD_ID=2026-06-11-hwp-ui.
+- 보안 PC에서 앱이 느리게 뜨거나 차단되는 듯해 여러 번 클릭 시 다중 프로세스가 뜨던 문제 방지.
+- _acquire_single_instance: named mutex로 이미 실행 중이면 '이미 실행 중입니다' 안내 후 종료.
+- pywin32 없거나 락 실패 시 그냥 진행(영향 없음).
