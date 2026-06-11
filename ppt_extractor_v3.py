@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-11-hwp-autopick"
+APP_BUILD_ID = "2026-06-11-droptab-fix"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
