@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-11-hwp-manual"
+APP_BUILD_ID = "2026-06-12-hwp-autoenter"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -645,6 +645,56 @@ class DocumentExtractorV3:
             allow_dispatch=allow_dispatch,
             use_get_active=False,
         )
+
+    def _auto_approve_hwp_access(self):
+        """포그라운드가 한글 보안 접근 대화상자(메인 창에 소유된 WPF 모달)면 Enter를 보낸다.
+
+        회사 보안 PC에서 한글이 원본 파일을 열 때 띄우는 '접근 허용/모두 허용/허용 안 함/
+        모두 안 함' 대화상자는 WPF(HwndWrapper[Hwp.exe])로 그려져 Win32 버튼 클릭이 불가능하다
+        (윈도우 트리에 버튼 컨트롤이 없음). 대신 기본 버튼 '접근 허용'(양쪽 PC 공통, Enter)을
+        키 입력으로 누른다. 단축키 'A'는 PC마다 '모두 허용'/'허용 안 함'으로 뒤바뀌므로 절대
+        쓰지 않는다. 대상은 '메인 한글 창에 소유된 HwndWrapper 모달'로 엄격히 한정해 문서 창에
+        Enter가 들어가는 일을 막고, 1초 쿨다운으로 연타를 방지한다.
+        """
+        user32 = ctypes.windll.user32
+        fg = user32.GetForegroundWindow()
+        if not fg:
+            return False
+        owner = user32.GetWindow(fg, 4)  # GW_OWNER — 소유된 팝업(=대화상자)만
+        if not owner:
+            return False  # 메인 문서 창(소유자 없음)에는 Enter를 보내지 않음
+        if self._is_hwp_window_title(self._get_window_title(fg)):
+            return False  # 포그라운드가 한글 문서 창이면 제외
+        # 한글 버전 무관: '한글 문서 창에 소유된 모달' 또는 한글 WPF 창
+        owner_is_hwp = self._is_hwp_window_title(self._get_window_title(owner))
+        fg_is_hwp = "Hwp.exe" in (self._get_window_class_name(fg) or "")
+        if not (owner_is_hwp or fg_is_hwp):
+            return False  # 한글이 띄운 접근 대화상자가 아님
+        now = time.monotonic()
+        if now - getattr(self, "_hwp_access_last_enter", 0.0) < 1.0:
+            return False  # 쿨다운(연타 방지)
+        self._hwp_access_last_enter = now
+        user32.keybd_event(0x0D, 0, 0, 0)   # VK_RETURN down
+        user32.keybd_event(0x0D, 0, 2, 0)   # VK_RETURN up (KEYEVENTF_KEYUP)
+        self.logger.log("한컴 보안 접근 대화상자 감지 → Enter(접근 허용) 전송")
+        return True
+
+    def _start_hwp_access_watcher(self):
+        """변환 동안 한컴 보안 접근 대화상자를 감시해 Enter(접근 허용)로 자동 통과시키는 스레드 시작.
+
+        반환된 Event를 set()하면 감시가 멈춘다. 대화상자가 없으면 아무 동작도 하지 않는다.
+        """
+        stop_event = threading.Event()
+
+        def _watch():
+            while not stop_event.wait(0.3):
+                try:
+                    self._auto_approve_hwp_access()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_watch, daemon=True).start()
+        return stop_event
 
     def _get_hwp_app_for_extraction(self):
         """추출용 HWP 연결. 새 빈 문서가 만들어지는 연결은 차단한다."""
@@ -1769,6 +1819,7 @@ class DocumentExtractorV3:
         if not os.path.exists(source_path):
             raise Exception(f"원본 파일을 찾을 수 없습니다: {source_path}")
         save_format = "hwpx" if os.path.splitext(save_path)[1].lower() == ".hwpx" else "hwp"
+        access_watcher = self._start_hwp_access_watcher()
         hwp, created = self._get_hwp_app(allow_dispatch=True)
         self.logger.log(f"한글 파일 변환 시작(created={created}): {source_path}")
         try:
@@ -1782,6 +1833,7 @@ class DocumentExtractorV3:
             result_path, method = self._hwp_write_with_fallbacks(hwp, save_path, save_format)
             self.logger.log(f"한글 파일 변환 완료({method}): {result_path}")
         finally:
+            access_watcher.set()
             if created:
                 try:
                     hwp.Quit()
@@ -1818,6 +1870,7 @@ class DocumentExtractorV3:
 
         self.root.after(0, lambda: self.status_text.set("새 한글 인스턴스로 원본 여는 중..."))
         self.root.after(0, lambda: self.progress_var.set(25))
+        access_watcher = self._start_hwp_access_watcher()
         hwp, created = self._get_hwp_app(allow_dispatch=True)
         self.logger.log(f"한글 인스턴스 확보(created={created}), 원본 Open 시도: {source_path}")
         try:
@@ -1832,6 +1885,7 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.progress_var.set(45))
             self._hwp_save_with_fallbacks(hwp, save_path, save_format, extract_start)
         finally:
+            access_watcher.set()
             if created:
                 try:
                     hwp.Quit()
