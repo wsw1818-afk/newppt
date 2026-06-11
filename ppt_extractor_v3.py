@@ -12,6 +12,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
+import queue
 import tempfile
 import shutil
 import datetime
@@ -23,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-05-28-excel-rebuild-safety"
+APP_BUILD_ID = "2026-06-11-hwp-memory-rebuild"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -64,6 +65,13 @@ try:
     HAS_DOCX = True
 except ImportError:
     HAS_DOCX = False
+
+# PDF 보안 해제 관련 (pypdf)
+try:
+    from pypdf import PdfReader, PdfWriter
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
 
 # COM 관련
 try:
@@ -276,14 +284,23 @@ class DocumentExtractorV3:
         self.notepad_list = []
         self.notepad_input_mode = "open"
 
+        # PDF 보안 해제 상태
+        self.pdf_source_path = tk.StringVar(value="")
+        self.pdf_save_path = tk.StringVar(value="")
+
         # 일괄 변환 상태
         self.batch_files = []
         self.batch_output_dir = tk.StringVar(value="")
         self.batch_status_text = tk.StringVar(value="파일을 추가하고 출력 폴더를 선택하세요.")
 
+        # 일괄 변환 Office 인스턴스 예열·재사용 (콜드 스타트 비용을 최초 1회로 축소)
+        self._office_job_queue = queue.Queue()
+        self._office_worker = None
+        self._warm_office_apps = {}  # key("ppt"/"excel"/"word") -> COM app, 워커 스레드 소유
+
         # 탭 변경 추적 (중복 감지 방지)
         self.last_tab_index = -1
-        self.tab_detected = [False, False, False, False, False]  # PPT, Excel, Word, 메모장, 일괄 변환
+        self.tab_detected = [False, False, False, False, False, False, False]  # PPT, Excel, Word, 한글, 메모장, PDF, 일괄 변환
         self.current_doc_index = 0
         self.nav_buttons = []
         self._hwp_detecting = False
@@ -368,7 +385,7 @@ class DocumentExtractorV3:
         ttk.Label(header_frame, text="문서 추출 도구 v3", style="Title.TLabel").pack(anchor=tk.W)
         ttk.Label(
             header_frame,
-            text="PPT, Excel, Word, 메모장을 파일 또는 열린 문서에서 가져와 새 파일로 내보냅니다.",
+            text="PPT, Excel, Word, 메모장, PDF를 파일 또는 열린 문서에서 가져와 새 파일로 내보냅니다.",
             style="Subtitle.TLabel",
         ).pack(anchor=tk.W, pady=(2, 0))
 
@@ -401,7 +418,9 @@ class DocumentExtractorV3:
             ("PowerPoint", "PPT", "슬라이드/도형 보존", self.detect_open_ppt),
             ("Excel", "XLS", "시트/도형 보존", self.detect_open_excel),
             ("Word", "DOC", "문서 구조 보존", self.detect_open_word),
+            ("한글", "HWP", "문서 구조 보존", self.detect_open_hwp),
             ("메모장", "TXT", "텍스트 추출", self.detect_open_notepad),
+            ("PDF", "PDF", "보안 해제", None),
             ("일괄 변환", "ALL", "파일 묶음 처리", None),
         ]
         self.view_title_text = tk.StringVar(value=self.doc_views[0][0])
@@ -425,17 +444,6 @@ class DocumentExtractorV3:
             for widget in (item, badge_label, text_box, title_label, summary_label):
                 widget.bind("<Button-1>", lambda _event, i=index: self._select_document_view(i))
             self.nav_buttons.append((item, badge_label, text_box, title_label, summary_label))
-
-        tk.Label(
-            sidebar,
-            text="한글/HWP는 회사 DRM 환경에서 일반 파일 변환이 불가해 제외됨",
-            bg=c["nav_bg"],
-            fg=c["nav_muted"],
-            font=("맑은 고딕", 8),
-            justify=tk.LEFT,
-            wraplength=150,
-            anchor=tk.W,
-        ).pack(side=tk.BOTTOM, fill=tk.X, padx=16, pady=(8, 16))
 
         content_shell = tk.Frame(
             body_frame,
@@ -482,6 +490,11 @@ class DocumentExtractorV3:
         self.word_tab.grid(row=0, column=0, sticky="nsew")
         self._setup_word_tab()
 
+        # 한글 탭
+        self.hwp_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
+        self.hwp_tab.grid(row=0, column=0, sticky="nsew")
+        self._setup_hwp_tab()
+
         # 메모장 탭
         self.notepad_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
         self.notepad_tab.grid(row=0, column=0, sticky="nsew")
@@ -492,7 +505,12 @@ class DocumentExtractorV3:
         self.batch_tab.grid(row=0, column=0, sticky="nsew")
         self._setup_batch_tab()
 
-        self.content_frames = [self.ppt_tab, self.excel_tab, self.word_tab, self.notepad_tab, self.batch_tab]
+        # PDF 보안 해제 탭
+        self.pdf_tab = ttk.Frame(self.content_area, style="Panel.TFrame")
+        self.pdf_tab.grid(row=0, column=0, sticky="nsew")
+        self._setup_pdf_tab()
+
+        self.content_frames = [self.ppt_tab, self.excel_tab, self.word_tab, self.hwp_tab, self.notepad_tab, self.pdf_tab, self.batch_tab]
         self._select_document_view(0, detect=False)
 
         footer_frame = ttk.Frame(main_frame, padding=(12, 0, 12, 12), style="Footer.TFrame")
@@ -1651,6 +1669,69 @@ class DocumentExtractorV3:
             time.sleep(0.1)
         raise Exception("한글 저장 후 결과 파일이 생성되지 않았거나 비어 있습니다.")
 
+    def _hwp_extract_hwpml(self, hwp):
+        """열린 한글 문서를 파일 저장 없이 HWPML2X(완전 구조 XML) 문자열로 추출한다.
+
+        GetTextFile은 메모리의 복호화된 내용을 문자열로 돌려주므로, 파일 SaveAs 단계에서
+        보안 래퍼가 SCDS 컨테이너로 다시 감싸는 것을 우회한다(Word의 WordOpenXML 재구성과 동일 원리).
+        """
+        try:
+            xml = hwp.GetTextFile("HWPML2X", "")
+        except Exception as get_error:
+            raise Exception(f"HWPML2X 메모리 추출 실패: {str(get_error)[:120]}")
+        if not xml or len(xml) < 50:
+            raise Exception(f"HWPML2X 추출 결과가 비어 있습니다 (len={len(xml) if xml else 0})")
+        self.logger.log(f"HWPML2X 메모리 추출 성공: {len(xml)}자")
+        return xml
+
+    def _hwp_rebuild_via_hwpml(self, hwp, save_path, save_format):
+        """원본 메모리의 HWPML2X를 새 한글 문서로 재구성해 일반 HWP/HWPX로 저장한다.
+
+        새 문서는 원본의 보안 컨텍스트가 없어 SaveAs가 SCDS로 감기지 않을 가능성이 높다.
+        한컴 권고대로 Copy/Paste 대신 SetTextFile로 내용을 옮긴다.
+        """
+        xml = self._hwp_extract_hwpml(hwp)
+        self.logger.log("HWPML2X 새 문서 재구성 시작")
+        hwp.XHwpDocuments.Add(0)  # 0 = 새 창에 빈 문서, 자동 활성화
+        try:
+            hwp.SetTextFile(xml, "HWPML2X", "")
+            self._save_hwp_document(hwp, save_path, save_format)  # SCDS 헤더 검증 포함
+            self.logger.log(f"HWPML2X 재구성 저장 완료: {save_path}")
+        finally:
+            # 재구성용 새 문서만 닫고 원본은 보존한다.
+            try:
+                hwp.XHwpDocuments.Active_XHwpDocument.Close(0)
+            except Exception:
+                try:
+                    hwp.HAction.Run("FileClose")
+                except Exception:
+                    pass
+
+    def _hwp_save_hwpml_direct(self, hwp, save_path):
+        """HWPML2X를 파이썬이 직접 파일로 기록한다(한글 SaveAs 미사용 → DRM 확실 우회).
+
+        산출물은 한글에서 열리는 .hwpml(XML) 형식으로, 원본 구조를 보존한다.
+        """
+        xml = self._hwp_extract_hwpml(hwp)
+        hwpml_path = os.path.splitext(save_path)[0] + ".hwpml"
+        with open(hwpml_path, "w", encoding="utf-8") as hwpml_file:
+            hwpml_file.write(xml)
+        if not (os.path.exists(hwpml_path) and os.path.getsize(hwpml_path) > 0):
+            raise Exception("HWPML 직접 저장 결과 파일이 비어 있습니다.")
+        self.logger.log(f"HWPML 직접 저장 완료: {hwpml_path} ({os.path.getsize(hwpml_path)} bytes)")
+        return hwpml_path
+
+    def _hwp_extract_success(self, result_path, extract_start, method_label, extra=""):
+        """한글 추출 성공 시 진행바/상태/완료 안내를 공통 처리한다."""
+        message = f"한글 추출 완료 ({method_label})!\n{result_path}"
+        if extra:
+            message += f"\n\n{extra}"
+        self.root.after(0, lambda: self.progress_var.set(100))
+        self.root.after(0, lambda: self.status_text.set("한글 추출 완료!"))
+        self.root.after(0, lambda: messagebox.showinfo("완료", message))
+        self.logger.log(f"한글 추출 완료({method_label}): {result_path}")
+        self._log_elapsed("한글 전체 추출 시간", extract_start)
+
     def _copy_word_document_file(self, source_doc, save_path):
         """저장된 Word 원본 파일을 원본 상태 변경 없이 복사한다."""
         try:
@@ -1996,16 +2077,13 @@ class DocumentExtractorV3:
         # debounce가 중복 이벤트를 정리하므로 탭 이동 시마다 최신 상태를 다시 확인한다.
         self.tab_detected[current_tab] = True
 
-        # 해당 탭 감지 실행
-        if current_tab == 0:  # PPT
-            self.detect_open_ppt()
-        elif current_tab == 1:  # Excel
-            self.detect_open_excel()
-        elif current_tab == 2:  # Word
-            self.detect_open_word()
-        elif current_tab == 3:  # 메모장
-            self.detect_open_notepad()
-        elif current_tab == 4:  # 일괄 변환
+        # 해당 탭 감지 실행 (doc_views 순서와 무관하게 감지 함수로 직접 분기)
+        detect_fn = self.doc_views[current_tab][3]
+        if detect_fn is not None:
+            detect_fn()
+        elif self.content_frames[current_tab] is self.pdf_tab:
+            self.status_text.set("보안 해제할 PDF 파일을 선택하세요")
+        elif self.content_frames[current_tab] is self.batch_tab:
             self.status_text.set("일괄 변환 파일을 추가하세요")
 
     def _make_unique_output_path_with_ext(self, output_dir, source_path, ext):
@@ -2123,7 +2201,7 @@ class DocumentExtractorV3:
         paths = self._parse_drop_paths(getattr(event, "data", ""))
         added = self._add_batch_paths(paths)
         if added:
-            self._select_document_view(4, detect=False)
+            self._select_document_view(5, detect=False)
             self.status_text.set(f"일괄 변환 파일 {added}개 추가됨")
         else:
             self.batch_status_text.set("추가할 수 있는 파일이 없습니다.")
@@ -2270,6 +2348,9 @@ class DocumentExtractorV3:
         if kind == "text":
             self._convert_text_source_file(source_path, save_path)
             return
+        if kind == "pdf":
+            self._convert_pdf_file(source_path, save_path)
+            return
         if kind in {"ppt", "excel", "word"}:
             label = {"ppt": "PPT", "excel": "Excel", "word": "Word"}[kind]
             try:
@@ -2283,38 +2364,19 @@ class DocumentExtractorV3:
         if not HAS_WIN32COM:
             raise Exception("Office 파일 직접 변환에는 pywin32/win32com이 필요합니다.")
 
-        app = None
-        created = False
-        original_alerts = None
-        alert_label = None
-        pythoncom.CoInitialize()
-        try:
-            if kind == "ppt":
-                app, created = self._create_isolated_com_app("PowerPoint.Application", "PowerPoint")
-                alert_label = "PowerPoint 직접 변환"
-                original_alerts = self._set_office_display_alerts(app, 1, alert_label)
-                self._batch_convert_ppt_file(app, source_path, save_path, skip_direct=True)
-            elif kind == "excel":
-                app, created = self._create_isolated_com_app("Excel.Application", "Excel")
-                alert_label = "Excel 직접 변환"
-                original_alerts = self._set_office_display_alerts(app, False, alert_label)
-                self._batch_convert_excel_file(app, source_path, save_path, skip_direct=True)
-            elif kind == "word":
-                app, created = self._create_isolated_com_app("Word.Application", "Word")
-                self._batch_convert_word_file(app, source_path, save_path)
-            else:
-                raise Exception(f"지원하지 않는 직접 변환 형식입니다: {kind}")
-        finally:
-            self._restore_office_display_alerts(app, original_alerts, alert_label)
-            if created and app is not None:
-                try:
-                    app.Quit()
-                except Exception:
-                    pass
-            try:
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
+        # 일괄 변환과 동일한 예열·재사용 인스턴스를 사용한다.
+        # (이 메서드는 Office 워커 스레드에서 실행되어 COM 아파트먼트가 일치한다.)
+        if kind == "ppt":
+            app = self._acquire_warm_office_app("ppt", "PowerPoint.Application", "PowerPoint")
+            self._batch_convert_ppt_file(app, source_path, save_path, skip_direct=True)
+        elif kind == "excel":
+            app = self._acquire_warm_office_app("excel", "Excel.Application", "Excel")
+            self._batch_convert_excel_file(app, source_path, save_path, skip_direct=True)
+        elif kind == "word":
+            app = self._acquire_warm_office_app("word", "Word.Application", "Word")
+            self._batch_convert_word_file(app, source_path, save_path)
+        else:
+            raise Exception(f"지원하지 않는 직접 변환 형식입니다: {kind}")
 
     def _start_direct_file_conversion(self, kind, source_path, save_path, save_var, button, label):
         try:
@@ -2326,12 +2388,11 @@ class DocumentExtractorV3:
         save_var.set(save_path)
         button.config(state=tk.DISABLED)
         self.progress_var.set(0)
-        thread = threading.Thread(
-            target=self._extract_direct_file,
-            args=(kind, source_path, save_path, button, label),
+        # 일괄 변환과 동일한 예열·재사용 워커에서 처리해 Office 콜드 스타트를 없앤다.
+        self._ensure_office_worker()
+        self._office_job_queue.put(
+            lambda: self._extract_direct_file(kind, source_path, save_path, button, label)
         )
-        thread.daemon = True
-        thread.start()
         return True
 
     def _extract_direct_file(self, kind, source_path, save_path, button, label):
@@ -4636,48 +4697,42 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.status_text.set("새 문서로 저장 중..."))
             self.root.after(0, lambda: self.progress_var.set(30))
 
-            # 방법 1: SaveAs 시도
+            # 방법 1: 직접 SaveAs (정상 HWP면 성공, DRM이면 SCDS 헤더로 실패 처리됨)
             try:
-                self.logger.log(f"SaveAs 시도: {save_path}")
+                self.logger.log(f"방법1 직접 SaveAs 시도: {save_path}")
                 self._save_hwp_document(hwp, save_path, save_format)
+                self._hwp_extract_success(save_path, extract_start, "직접 저장")
+                return
+            except Exception as save_error:
+                self.logger.log(f"방법1 SaveAs 실패(보안 컨테이너 가능성): {str(save_error)[:150]}")
 
-                self.root.after(0, lambda: self.progress_var.set(100))
-                self.root.after(0, lambda: self.status_text.set("한글 추출 완료!"))
-                self.root.after(0, lambda: messagebox.showinfo("완료",
-                    f"한글 추출 완료!\n{save_path}"))
-                self.logger.log(f"저장 완료: {save_path}")
-                self._log_elapsed("한글 전체 추출 시간", extract_start)
+            # 방법 2: HWPML2X 메모리 재구성 → 일반 HWP (원본 구조 보존, 파일 저장 우회로 DRM 회피)
+            self.root.after(0, lambda: self.status_text.set("메모리에서 원본 구조 추출 중..."))
+            self.root.after(0, lambda: self.progress_var.set(55))
+            try:
+                self._hwp_rebuild_via_hwpml(hwp, save_path, save_format)
+                self._hwp_extract_success(save_path, extract_start, "메모리 재구성")
+                return
+            except Exception as rebuild_error:
+                self.logger.log(f"방법2 HWPML2X 재구성 실패: {str(rebuild_error)[:150]}")
 
-            except Exception as e:
-                self.logger.log(f"SaveAs 실패: {str(e)}")
-
-                # 방법 2: 클립보드를 통한 복사 시도
-                self.root.after(0, lambda: self.status_text.set("클립보드 복사 시도 중..."))
-                self.root.after(0, lambda: self.progress_var.set(50))
-
-                try:
-                    # 전체 선택
-                    hwp.HAction.Run("SelectAll")
-                    # 복사
-                    hwp.HAction.Run("Copy")
-
-                    # 새 문서 생성
-                    hwp.HAction.Run("FileNew")
-                    # 붙여넣기
-                    hwp.HAction.Run("Paste")
-
-                    # 저장
-                    self._save_hwp_document(hwp, save_path, save_format)
-
-                    self.root.after(0, lambda: self.progress_var.set(100))
-                    self.root.after(0, lambda: self.status_text.set("한글 추출 완료!"))
-                    self.root.after(0, lambda: messagebox.showinfo("완료",
-                        f"한글 추출 완료 (클립보드 방식)!\n{save_path}"))
-                    self.logger.log(f"클립보드 방식으로 저장 완료: {save_path}")
-                    self._log_elapsed("한글 전체 추출 시간", extract_start)
-
-                except Exception as e2:
-                    raise Exception(f"한글 저장 실패:\n{str(e2)}")
+            # 방법 3: HWPML2X를 파이썬이 직접 .hwpml로 저장 (한글 SaveAs 미사용, 가장 확실한 우회)
+            self.root.after(0, lambda: self.status_text.set("원본 구조를 HWPML로 저장 중..."))
+            self.root.after(0, lambda: self.progress_var.set(75))
+            try:
+                hwpml_path = self._hwp_save_hwpml_direct(hwp, save_path)
+                self._hwp_extract_success(
+                    hwpml_path, extract_start, "HWPML 직접 저장",
+                    extra="원본 구조를 보존한 .hwpml 파일입니다. 한글에서 열어 .hwp로 다시 저장할 수 있습니다.",
+                )
+                return
+            except Exception as hwpml_error:
+                self.logger.log(f"방법3 HWPML 직접 저장 실패: {str(hwpml_error)[:150]}")
+                raise Exception(
+                    "한글 변환에 실패했습니다.\n\n"
+                    "직접 저장·메모리 재구성·HWPML 추출이 모두 막혔습니다.\n"
+                    "회사 보안(DRM)이 메모리 추출까지 차단하는 환경일 수 있습니다."
+                )
 
         except Exception as e:
             error_message = str(e)
@@ -5305,6 +5360,84 @@ class DocumentExtractorV3:
                                                   style="Accent.TButton")
         self.notepad_extract_button.pack(pady=10)
 
+    def _setup_pdf_tab(self):
+        """PDF 보안 해제 탭 설정"""
+        tab = self.pdf_tab
+
+        info_frame = self._create_section(tab, "PDF 보안 해제")
+        ttk.Label(
+            info_frame,
+            text="암호·편집제한이 걸린 PDF를 제한 없는 일반 PDF로 해제해 새 파일로 저장합니다.\n"
+                 "정상 PDF는 그대로 복사됩니다. (AES 암호화 PDF는 보안PC 빌드에서 지원되지 않습니다.)",
+            font=("맑은 고딕", 9), justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=2)
+
+        source_inner = ttk.Frame(info_frame, style="Card.TFrame")
+        source_inner.pack(fill=tk.X, pady=5)
+        ttk.Label(source_inner, text="PDF 선택:", width=12).pack(side=tk.LEFT)
+        self.pdf_source_entry = ttk.Entry(source_inner, textvariable=self.pdf_source_path,
+                                          width=45, state="readonly")
+        self.pdf_source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(source_inner, text="찾아보기", command=self.browse_pdf_source_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
+
+        path_frame = self._create_section(tab, "새 파일 저장 위치")
+        path_inner = ttk.Frame(path_frame)
+        path_inner.pack(fill=tk.X)
+        ttk.Entry(path_inner, textvariable=self.pdf_save_path, width=45).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(path_inner, text="찾아보기", command=self.browse_pdf_save_path,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
+
+        self.pdf_extract_button = ttk.Button(tab, text="PDF 보안 해제",
+                                             command=self.start_pdf_conversion,
+                                             style="Accent.TButton")
+        self.pdf_extract_button.pack(pady=10)
+
+    def browse_pdf_source_path(self):
+        """보안 해제할 PDF 원본 선택"""
+        path = filedialog.askopenfilename(
+            title="보안 해제할 PDF 선택",
+            filetypes=[("PDF 파일", "*.pdf"), ("모든 파일", "*.*")],
+        )
+        if path:
+            self.pdf_source_path.set(path)
+            if not self.pdf_save_path.get().strip():
+                self.pdf_save_path.set(self._default_direct_save_path(path, "pdf"))
+            self.status_text.set("PDF 파일 선택됨")
+            self.logger.log(f"PDF 원본 선택: {path}")
+
+    def browse_pdf_save_path(self):
+        """PDF 저장 위치 선택"""
+        source = self.pdf_source_path.get().strip()
+        if source:
+            initial = os.path.splitext(os.path.basename(source))[0] + "_복사본.pdf"
+        else:
+            initial = "해제.pdf"
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF 파일", "*.pdf")],
+            initialfile=initial,
+            title="저장할 위치 선택",
+        )
+        if path:
+            self.pdf_save_path.set(path)
+            self.logger.log(f"PDF 저장 경로: {path}")
+
+    def start_pdf_conversion(self):
+        """PDF 보안 해제 실행"""
+        source = self.pdf_source_path.get().strip()
+        if not source:
+            messagebox.showwarning("경고", "보안 해제할 PDF 파일을 선택하세요.")
+            return
+        if not HAS_PYPDF:
+            messagebox.showerror("오류", "PDF 처리 모듈(pypdf)이 없습니다.")
+            return
+        self._start_direct_file_conversion(
+            "pdf", source, self.pdf_save_path.get().strip(),
+            self.pdf_save_path, self.pdf_extract_button, "PDF",
+        )
+
     def _setup_batch_tab(self):
         """파일 일괄 변환 탭 설정"""
         tab = self.batch_tab
@@ -5370,6 +5503,8 @@ class DocumentExtractorV3:
             return "excel"
         if ext in {".doc", ".docx", ".docm"}:
             return "word"
+        if ext in {".pdf"}:
+            return "pdf"
         if ext in {".txt"}:
             return "text"
         return None
@@ -5382,6 +5517,8 @@ class DocumentExtractorV3:
             return source_ext if source_ext in {".xlsx", ".xlsm", ".xlsb"} else ".xlsx"
         if kind == "word":
             return ".docx"
+        if kind == "pdf":
+            return ".pdf"
         return ".txt"
 
     def _make_unique_output_path(self, output_dir, source_path, kind):
@@ -5398,6 +5535,7 @@ class DocumentExtractorV3:
 
     def _add_batch_paths(self, paths):
         added = 0
+        added_paths = []
         seen = {os.path.abspath(path).lower() for path in self.batch_files}
         for path in self._expand_supported_drop_paths(paths):
             key = os.path.abspath(path).lower()
@@ -5406,8 +5544,12 @@ class DocumentExtractorV3:
             self.batch_files.append(path)
             seen.add(key)
             added += 1
+            added_paths.append(path)
         self._refresh_batch_file_list()
         self.batch_status_text.set(f"{added}개 파일 추가됨, 총 {len(self.batch_files)}개")
+        if added_paths:
+            # 첫 변환의 콜드 스타트까지 없애기 위해 필요한 Office를 백그라운드로 미리 띄운다.
+            self._prewarm_batch_office(added_paths)
         return added
 
     def _refresh_batch_file_list(self):
@@ -5416,14 +5558,54 @@ class DocumentExtractorV3:
             kind = self._batch_file_kind(path) or "skip"
             self.batch_file_listbox.insert(tk.END, f"{index}. [{kind.upper()}] {path}")
 
+    # 일괄 변환 Office 형식별 prog_id 매핑 (예열·재사용 공통)
+    _OFFICE_PROG_IDS = {
+        "ppt": ("PowerPoint.Application", "PowerPoint"),
+        "excel": ("Excel.Application", "Excel"),
+        "word": ("Word.Application", "Word"),
+    }
+
+    def _prewarm_batch_office(self, paths):
+        """추가된 파일에 맞춰 Office를 백그라운드로 미리 띄운다. 실제 판단·실행은
+        워커 스레드에서 수행해 GUI가 멈추지 않게 한다."""
+        if not HAS_WIN32COM:
+            return
+        self._ensure_office_worker()
+        self._office_job_queue.put(lambda ps=list(paths): self._prewarm_office_job(ps))
+
+    def _prewarm_office_job(self, paths):
+        """워커 스레드에서 실행: 정상 OpenXML은 건너뛰고, Office 복원이 필요한
+        형식(zip이 아닌 DRM/보안 컨테이너 등)만 골라 예열 인스턴스를 띄운다."""
+        needed = set()
+        for path in paths:
+            kind = self._batch_file_kind(path)
+            if kind not in self._OFFICE_PROG_IDS or kind in needed:
+                continue
+            try:
+                # 이미 정상 OpenXML이면 Office 없이 빠른 복사가 가능하므로 예열 불필요.
+                self._validate_office_openxml(path, "예열 점검", deep=False)
+            except Exception:
+                needed.add(kind)
+            if len(needed) == len(self._OFFICE_PROG_IDS):
+                break
+        for kind in sorted(needed):
+            prog_id, display_name = self._OFFICE_PROG_IDS[kind]
+            try:
+                self._acquire_warm_office_app(kind, prog_id, display_name)
+            except Exception as exc:
+                self.logger.log(f"Office 예열 실패({kind}): {str(exc)[:80]}")
+        if needed:
+            self.logger.log(f"일괄 변환 Office 예열 완료: {', '.join(sorted(needed))}")
+
     def add_batch_files(self):
         paths = filedialog.askopenfilenames(
             title="일괄 변환할 파일 선택",
             filetypes=[
-                ("지원 문서", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx;*.xls;*.xlsx;*.xlsm;*.xlsb;*.doc;*.docx;*.docm;*.txt"),
+                ("지원 문서", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx;*.xls;*.xlsx;*.xlsm;*.xlsb;*.doc;*.docx;*.docm;*.pdf;*.txt"),
                 ("PowerPoint", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx"),
                 ("Excel", "*.xls;*.xlsx;*.xlsm;*.xlsb"),
                 ("Word", "*.doc;*.docx;*.docm"),
+                ("PDF", "*.pdf"),
                 ("텍스트", "*.txt"),
                 ("모든 파일", "*.*"),
             ],
@@ -5477,16 +5659,103 @@ class DocumentExtractorV3:
         files = list(self.batch_files)
         self.batch_extract_button.config(state=tk.DISABLED)
         self.progress_var.set(0)
-        thread = threading.Thread(target=self._extract_batch, args=(files, output_dir))
-        thread.daemon = True
-        thread.start()
+        # 예열·재사용 워커에 작업을 맡겨, 변환할 때마다 Office를 새로 켜는 비용을 없앤다.
+        self._ensure_office_worker()
+        self._office_job_queue.put(lambda: self._extract_batch(files, output_dir))
 
-    def _get_or_create_batch_app(self, apps, key, getter, display_name):
-        if key not in apps:
-            app, created = getter()
-            apps[key] = (app, created)
-            self.logger.log(f"일괄 변환 {display_name} 연결 완료 (created={created})")
-        return apps[key][0]
+    def _ensure_office_worker(self):
+        """Office 변환을 처리하는 영속 워커 스레드를 보장한다.
+        한 스레드가 COM 아파트먼트와 모든 Office 인스턴스를 소유해야
+        변환 사이에 인스턴스를 안전하게 재사용할 수 있다."""
+        worker = self._office_worker
+        if worker is not None and worker.is_alive():
+            return
+        worker = threading.Thread(
+            target=self._office_worker_loop, name="OfficeWorker", daemon=True
+        )
+        self._office_worker = worker
+        worker.start()
+
+    def _office_worker_loop(self):
+        """큐에 들어온 변환 작업을 순서대로 처리하고, 예열 Office 인스턴스를 보관한다."""
+        com_ready = False
+        if HAS_WIN32COM:
+            try:
+                pythoncom.CoInitialize()
+                com_ready = True
+            except Exception as exc:
+                self.logger.log(f"Office 워커 COM 초기화 실패: {str(exc)[:80]}")
+        try:
+            while True:
+                job = self._office_job_queue.get()
+                try:
+                    if job is None:  # 종료 신호
+                        break
+                    job()
+                except Exception as exc:
+                    self.logger.error("Office 워커 작업 오류", exc)
+                finally:
+                    self._office_job_queue.task_done()
+        finally:
+            for key in list(self._warm_office_apps.keys()):
+                app = self._warm_office_apps.pop(key, None)
+                if app is None:
+                    continue
+                try:
+                    app.Quit()
+                except Exception:
+                    pass
+            if com_ready:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+
+    def _acquire_warm_office_app(self, key, prog_id, display_name):
+        """예열된 격리 Office 인스턴스를 재사용한다. 죽었으면 다시 만든다.
+        반드시 Office 워커 스레드 안에서만 호출해야 COM 아파트먼트가 일치한다."""
+        app = self._warm_office_apps.get(key)
+        if app is not None:
+            try:
+                _ = app.Name  # 살아있는지 가벼운 속성 접근으로 확인
+                return app
+            except Exception as exc:
+                self.logger.log(
+                    f"일괄 변환 {display_name} 예열 인스턴스 만료, 재생성: {str(exc)[:60]}"
+                )
+                self._warm_office_apps.pop(key, None)
+
+        app, _created = self._create_isolated_com_app(prog_id, display_name)
+        # 변환 전용 인스턴스의 불필요한 렌더링/경고를 줄여 속도를 높인다.
+        if key == "ppt":
+            try:
+                app.DisplayAlerts = 1
+            except Exception:
+                pass
+            try:
+                app.WindowState = 2  # ppWindowMinimized: 창 렌더링 최소화
+            except Exception as exc:
+                self.logger.log(f"PowerPoint 창 최소화 실패(무시): {str(exc)[:60]}")
+        elif key == "excel":
+            try:
+                app.DisplayAlerts = False
+            except Exception:
+                pass
+        self._warm_office_apps[key] = app
+        self.logger.log(f"일괄 변환 {display_name} 예열 인스턴스 준비 완료")
+        return app
+
+    def _shutdown_office_worker(self):
+        """프로그램 종료 시 예열 Office 인스턴스를 정리하고 워커를 종료한다."""
+        worker = self._office_worker
+        if worker is None or not worker.is_alive():
+            return
+        try:
+            self._office_job_queue.put(None)
+            worker.join(timeout=10)
+        except Exception:
+            pass
+        self._office_worker = None
 
     def _batch_convert_ppt_file(self, ppt_app, source_path, target_path, skip_direct=False):
         source_pres = None
@@ -5655,15 +5924,121 @@ class DocumentExtractorV3:
         if not os.path.exists(target_path) or os.path.getsize(target_path) <= 0:
             raise Exception("TXT 복사 결과 파일이 없거나 비어 있습니다.")
 
+    def _looks_like_pdf(self, path):
+        """파일 헤더로 정상 PDF 여부를 확인한다(%PDF-)."""
+        try:
+            with open(path, "rb") as handle:
+                return handle.read(5).startswith(b"%PDF-")
+        except Exception:
+            return False
+
+    def _validate_pdf(self, path, label):
+        if not os.path.exists(path) or os.path.getsize(path) <= 0:
+            raise Exception(f"{label} 결과 파일이 없거나 비어 있습니다.")
+        if not self._looks_like_pdf(path):
+            raise Exception(f"{label} 결과가 정상 PDF 파일이 아닙니다.")
+
+    def _publish_pdf_copy(self, source_path, save_path, label):
+        """이미 해제된(암호화 안 된) 정상 PDF는 그대로 복사한다."""
+        if os.path.abspath(source_path).lower() == os.path.abspath(save_path).lower():
+            raise Exception("원본과 같은 경로로는 복사할 수 없습니다.")
+        target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+        fd, stage_path = tempfile.mkstemp(prefix=".docextract_", suffix=".pdf", dir=target_dir)
+        os.close(fd)
+        try:
+            shutil.copyfile(source_path, stage_path)
+            os.replace(stage_path, save_path)
+            self._validate_copied_file(source_path, save_path, f"{label} 최종 파일")
+        except Exception:
+            if os.path.exists(stage_path):
+                try:
+                    os.remove(stage_path)
+                except Exception:
+                    pass
+            raise
+
+    def _release_pdf_file(self, source_path, save_path, label):
+        """암호/편집제한 PDF를 해제(복호화·제한제거)해 일반 PDF로 저장한다."""
+        reader = PdfReader(source_path)
+        if reader.is_encrypted:
+            decrypted = False
+            try:
+                decrypted = bool(reader.decrypt(""))  # 빈 사용자 암호(편집제한 PDF 대부분)
+            except Exception as exc:
+                self.logger.log(f"  PDF 복호화 시도 실패: {str(exc)[:80]}")
+            if not decrypted:
+                raise Exception(
+                    "암호로 보호된 PDF라 자동 해제가 불가합니다(사용자 암호 필요)."
+                )
+        writer = PdfWriter()
+        writer.append(reader)
+        try:
+            if reader.metadata:
+                writer.add_metadata(reader.metadata)
+        except Exception:
+            pass
+
+        temp_path = self._make_local_temp_path(".pdf")
+        try:
+            with open(temp_path, "wb") as handle:
+                writer.write(handle)
+            self._validate_pdf(temp_path, f"{label} 해제 PDF")
+
+            target_dir = os.path.dirname(os.path.abspath(save_path)) or os.getcwd()
+            os.makedirs(target_dir, exist_ok=True)
+            fd, stage_path = tempfile.mkstemp(prefix=".docextract_", suffix=".pdf", dir=target_dir)
+            os.close(fd)
+            try:
+                shutil.copyfile(temp_path, stage_path)
+                os.replace(stage_path, save_path)
+            except Exception:
+                if os.path.exists(stage_path):
+                    try:
+                        os.remove(stage_path)
+                    except Exception:
+                        pass
+                raise
+            self._validate_pdf(save_path, f"{label} 최종 PDF")
+            self.logger.log(f"{label} 보안 해제 저장 완료: {save_path}")
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    def _convert_pdf_file(self, source_path, save_path):
+        """PDF 보안 해제: 정상 PDF는 복사, 암호/편집제한 PDF는 해제 후 저장."""
+        label = "PDF"
+        if not self._looks_like_pdf(source_path):
+            raise Exception(
+                "정상 PDF 파일이 아닙니다(DRM 보안 컨테이너일 수 있음). "
+                "원본을 인가된 뷰어로 연 뒤 'Microsoft Print to PDF'로 다시 저장하세요."
+            )
+        if not HAS_PYPDF:
+            raise Exception("PDF 처리에는 pypdf 패키지가 필요합니다(pip install pypdf).")
+
+        try:
+            reader = PdfReader(source_path)
+            encrypted = bool(reader.is_encrypted)
+        except Exception as exc:
+            raise Exception(f"PDF를 열 수 없습니다: {str(exc)[:120]}")
+
+        if not encrypted:
+            try:
+                self._publish_pdf_copy(source_path, save_path, label)
+                return
+            except Exception as copy_error:
+                self.logger.log(f"  PDF 직접 복사 실패, 재구성 저장 시도: {str(copy_error)[:120]}")
+
+        self._release_pdf_file(source_path, save_path, label)
+
     def _extract_batch(self, files, output_dir):
         self.logger.log("=== 일괄 변환 시작 ===")
         extract_start = time.perf_counter()
-        apps = {}
-        alert_states = {}
         successes = []
         failures = []
-        if HAS_WIN32COM:
-            pythoncom.CoInitialize()
 
         try:
             total = len(files)
@@ -5694,14 +6069,7 @@ class DocumentExtractorV3:
                             )
                         if not HAS_WIN32COM:
                             raise Exception("PPT 내부 복원에는 pywin32/win32com이 필요합니다.")
-                        ppt_app = self._get_or_create_batch_app(
-                            apps,
-                            "ppt",
-                            lambda: self._create_isolated_com_app("PowerPoint.Application", "PowerPoint"),
-                            "PowerPoint",
-                        )
-                        if "ppt" not in alert_states:
-                            alert_states["ppt"] = self._set_office_display_alerts(ppt_app, 1, "PowerPoint 일괄")
+                        ppt_app = self._acquire_warm_office_app("ppt", "PowerPoint.Application", "PowerPoint")
                         self._batch_convert_ppt_file(ppt_app, source_path, target_path, skip_direct=True)
                     elif kind == "excel":
                         try:
@@ -5715,14 +6083,7 @@ class DocumentExtractorV3:
                             )
                         if not HAS_WIN32COM:
                             raise Exception("Excel 일괄 변환에는 pywin32/win32com이 필요합니다.")
-                        excel_app = self._get_or_create_batch_app(
-                            apps,
-                            "excel",
-                            lambda: self._create_isolated_com_app("Excel.Application", "Excel"),
-                            "Excel",
-                        )
-                        if "excel" not in alert_states:
-                            alert_states["excel"] = self._set_office_display_alerts(excel_app, False, "Excel 일괄")
+                        excel_app = self._acquire_warm_office_app("excel", "Excel.Application", "Excel")
                         self._batch_convert_excel_file(excel_app, source_path, target_path, skip_direct=True)
                     elif kind == "word":
                         try:
@@ -5736,13 +6097,10 @@ class DocumentExtractorV3:
                             )
                         if not HAS_WIN32COM:
                             raise Exception("Word 일괄 변환에는 pywin32/win32com이 필요합니다.")
-                        word_app = self._get_or_create_batch_app(
-                            apps,
-                            "word",
-                            lambda: self._create_isolated_com_app("Word.Application", "Word"),
-                            "Word",
-                        )
+                        word_app = self._acquire_warm_office_app("word", "Word.Application", "Word")
                         self._batch_convert_word_file(word_app, source_path, target_path)
+                    elif kind == "pdf":
+                        self._convert_pdf_file(source_path, target_path)
                     elif kind == "text":
                         self._batch_convert_text_file(source_path, target_path)
                     successes.append(target_path)
@@ -5766,18 +6124,8 @@ class DocumentExtractorV3:
             self.root.after(0, lambda: self.status_text.set(f"일괄 변환 오류: {error_message[:50]}"))
             self.root.after(0, lambda: messagebox.showerror("오류", f"일괄 변환 중 오류:\n{error_message}"))
         finally:
-            for key, (app, created) in apps.items():
-                self._restore_office_display_alerts(app, alert_states.get(key), f"{key} 일괄")
-                if created:
-                    try:
-                        app.Quit()
-                    except Exception:
-                        pass
-            if HAS_WIN32COM:
-                try:
-                    pythoncom.CoUninitialize()
-                except Exception:
-                    pass
+            # 예열 인스턴스는 종료하지 않고 살려둬 다음 변환에서 즉시 재사용한다.
+            # (실제 종료는 _shutdown_office_worker / 프로그램 종료 시 수행)
             self.root.after(0, lambda: self.batch_extract_button.config(state=tk.NORMAL))
 
     def browse_notepad_save_path(self):
@@ -6057,6 +6405,7 @@ class DocumentExtractorV3:
         self.logger.log("메인 루프 시작")
         self.root.mainloop()
         self.logger.log("메인 루프 종료")
+        self._shutdown_office_worker()
         self.logger.close()
 
 

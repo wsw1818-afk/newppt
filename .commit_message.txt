@@ -1,1 +1,6 @@
-🐛 추출 오류 미표시(NameError)·임시파일 누수·셀/경로/Word 서식 등 검증된 버그 다수 수정
+✨ 한글 DRM(SCDS) 메모리 추출 극복 + HWP 탭 복원 (누적 6/4~6/11)
+
+- 한글: GetTextFile("HWPML2X")로 파일 저장 없이 완전 구조를 메모리 추출 → 새 문서 SetTextFile 재구성 → 일반 .hwp, 실패 시 .hwpml 직접 저장(3단계 폴백). SaveAs를 우회해 SCDS 재포장 회피(PPT slide.Copy / Word WordOpenXML과 동일 원리). 고아였던 HWP 탭을 사이드바에 복원, _do_detect를 데이터 기반으로 리팩터.
+- PDF: pypdf 기반 보안해제(평문/RC4/편집제한) + 전용 탭, 메뉴 순서 PDF↑.
+- 일괄변환: Office 예열·재사용 워커로 콜드스타트 제거.
+- 보안PC: cryptography(_rust.pyd)·cffi 번들 제외로 EDR 차단 회귀 복구.

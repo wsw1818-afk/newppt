@@ -3,9 +3,31 @@
 ## Dashboard
 - Progress: 100%
 - Risk: 낮음
-- Last updated: 2026-05-18
+- Last updated: 2026-06-11
 
 ## Latest Build
+- 2026-06-11 KST: **한글(HWP) DRM(SCDS) 극복 + 사이드바 탭 복원.**
+  - 탭 복원: orphan 상태였던 HWP 기능(감지/추출/저장 메서드는 살아있으나 UI 미연결)을 사이드바에 재연결. `doc_views`에 '한글'을 Word 다음 배치, `hwp_tab` 생성/setup, `content_frames`·`tab_detected`(7칸) 조정, `_do_detect`를 인덱스 하드코딩 대신 `doc_views` 감지함수 기반으로 리팩터(메뉴 순서 변경에 안전).
+  - DRM 극복: 기존 HWP는 직접 SaveAs·클립보드·UI저장 모두 마지막이 파일 저장이라 보안 래퍼가 SCDS(헤더 `SCDSA004`)로 재포장돼 실패. PPT(`slide.Copy`)/Word(`WordOpenXML`)가 성공한 원리(메모리 COM 추출)를 HWP에 적용: `GetTextFile("HWPML2X")`로 파일 저장 없이 완전 구조 XML을 메모리에서 추출. **3단계 폴백** — (1) 직접 SaveAs (2) HWPML2X→새 문서 `SetTextFile` 재구성→일반 .hwp (3) HWPML2X를 파이썬이 직접 .hwpml로 기록(한글 SaveAs 미사용, 가장 확실한 우회). 기존 `_save_hwp_document`의 SCDS 헤더 검증 재사용. 순수 COM이라 보안PC 호환(새 네이티브 의존성 0).
+  - 신규 메서드: `_hwp_extract_hwpml`/`_hwp_rebuild_via_hwpml`/`_hwp_save_hwpml_direct`/`_hwp_extract_success`. 구식 클립보드(SelectAll/Copy/Paste) 경로 제거(한컴 권고: 복잡 자동화에선 Copy/Paste 대신 SetTextFile).
+  - 검증: `py_compile` OK, UI 스모크(7탭/한글@3 연결), 재구성 구조 스모크(GetTextFile/SetTextFile/HWPML2X/3단계 폴백), `goal_verify` PASS=10/FAIL=0. **단, 실제 SCDS 우회 동작은 개발 PC에 한글/SCDS 문서가 없어 미검증 → 회사 보안 PC에서 실문서 테스트 필요.** `APP_BUILD_ID="2026-06-11-hwp-memory-rebuild"`. onefile/folder 재빌드·배포 완료(결과물 폴더). onefile SHA256 `c7c37621C4AD83958AA62AAC5178DE3B72DD2956515174AC4E5F8F5B9ADCD742`, folder-exe SHA256 `0B90DB91BCBB789C5F6E7080C8760911B302F183B2D6B6F70DC667C75B5BB374`. 보안PC 호환(`_rust.pyd` 부재) + pypdf(PYZ 102항목) 재확인.
+- 2026-06-04 KST: 사이드바 메뉴 순서 변경(PDF를 일괄 변환 위로) 후 onefile/folder 재빌드·배포. 보안PC 호환 유지, GUI 순서 스모크(pdf=idx4/batch=idx5) 확인.
+- Onefile SHA256: `1C80EB30B29510B90342341A046A840438250744B9F958AD23E91A0E578B30EF`
+- Folder EXE SHA256: `81C1D8D65090085155655807FE488798A1CE7EAFE9DF14A84BC644548988D8C8`
+- 2026-06-04 KST: PDF 보안해제 **전용 탭** 추가(사이드바 'PDF' 메뉴/탭) 후 onefile/folder 재빌드·배포. cryptography 제외 유지(보안PC 호환), pypdf 포함 확인. GUI 구성 스모크 + goal_verify PASS=10.
+- Onefile SHA256: `021F60186E9AB2401B733FD89F690C81E6EF82EA7E8060A206E15D66FF8D27B4`
+- Folder EXE SHA256: `E3F333DB93B3B4DA1E8E6642236238E31C0E5B4A822B47C32C191D8212C3FE89`
+- 2026-06-04 KST: 보안PC 실행 불가 회귀 수정 — cryptography(네이티브 `_rust.pyd`/cffi)를 번들에서 제외(`excludes`)해 옛 정상 빌드와 동일 네이티브 구성으로 복원. 옛 `_517833e` 빌드엔 `_rust.pyd`가 없고 `libcrypto`(OpenSSL, 파이썬 표준)만 있음을 바이너리 비교로 확인 → OpenSSL은 원래 있던 것(무죄), `_rust.pyd`가 차단 원인. pypdf 유지(AES PDF만 미지원). onefile/folder 재빌드·배포.
+- Onefile SHA256: `9022E76B671A097BE782B9CBD5278AD66E1392F26967E6C33B7FFB9026FFD324`
+- Folder EXE SHA256: `DE76B9F2E48786E76A5FC2A6F1852DC9F5BC70D9AEDEF08F5671AEDE50584B33`
+- 2026-06-04 KST: PDF 보안 해제 기능 추가(.pdf 입력 지원, pypdf) 후 onefile/folder EXE 재빌드·배포. pypdf/cryptography 번들 xref로 확인.
+- Onefile SHA256: `C1B1C0BB7744011339CBBDF72B63F2231C97AE8F675C7A467A84C7A542514B2C`
+- Folder EXE SHA256: `77D9EAFDDFC2372AF5CF21BA18A8CBE600BE2A909401173CCB7F5DE7333E9D82`
+- 2026-06-04 KST: 단일 변환 탭도 예열·재사용 적용(2번) 후 onefile/folder EXE 재빌드·배포.
+- Onefile SHA256: `0B513D683D0D376B14009C5BEB578D32D119C00F47449D284492E889141EC6D8`
+- Folder EXE SHA256: `0434B81C538B71A26FBBC336DC91B91323E1F47E59ACD795DA12907BE59C0151`
+- 2026-06-04 KST: 일괄 변환 속도 개선(Office 예열·재사용 + 파일 추가 시 백그라운드 예열) 반영 후 onefile EXE 재빌드·배포.
+- Onefile SHA256: `913E4E74CC0D6760AD1A8BA8A00DDD75B57C3D6A4D2CA4D8CEDE01BDA1987CAB`
 - 2026-05-18 KST: synced other-PC update `517833e` after input mode separation for file/open document selection.
 - Onefile SHA256: `52174E22F4A95E8C3DAD6636691D5BD11CFABBA4B22172201641EF5DA703BE9C`
 - 2026-05-15 17:10 KST: rebuilt onefile and folder EXE after HWP dialog path normalization.
@@ -38,6 +60,12 @@
 - HWP 감지는 `Dispatch`로 빈 한글 문서를 만들지 않고, 열린 창 제목 폴백과 중복 실행 가드로 처리한다.
 - PPT 하이브리드 도형 매핑의 중복 키를 제거했다.
 - `scripts\goal_verify_v3.py`와 `run_goal_verify_v3.bat`로 목표 검증을 자동 실행할 수 있다.
+- (2026-06-03) 일괄 변환 속도 개선: 영속 Office 워커 스레드가 Office 인스턴스를 예열·재사용해, 변환마다 새로 켜던 콜드스타트 비용을 최초 1회로 축소. PPT는 창 최소화(`WindowState=2`)로 렌더링 부담을 줄임. 종료 시 `_shutdown_office_worker`로 정리. goal_verify PASS=10/SKIP=0/FAIL=0, 예열 재사용 스모크 테스트 통과로 확인. (단일 변환 탭은 미적용 — 추후 동일 적용 가능)
+- (2026-06-04) 추가: 배치 파일 추가 시 필요한 Office만 백그라운드 예열(`_prewarm_batch_office`/`_prewarm_office_job`)해 **첫 변환의 콜드스타트까지 제거**. 정상 OpenXML은 예열을 건너뛰고, zip이 아닌 DRM/보안 컨테이너 형식만 예열한다. 예열 선택 스모크 테스트 + goal_verify PASS=10 회귀 확인 후 onefile EXE 재빌드·배포(SHA256 913E4E74…).
+- (2026-06-04) 추가: 단일 변환 탭(`_convert_direct_file`)도 같은 예열·재사용 워커로 라우팅해 Office 콜드스타트 제거(배치와 인스턴스 공유). 단일 변환 재사용 스모크 + goal_verify PASS=10 확인 후 onefile/folder EXE 둘 다 재빌드·배포(onefile SHA256 0B513D68…, folder SHA256 0434B81C…).
+- (2026-06-04) 기능 추가: **PDF 보안 해제**. 일괄/단일 변환에 `.pdf`를 지원 형식으로 추가하고 `_convert_pdf_file`로 처리 — 정상 PDF는 복사, 암호/편집제한 PDF는 `pypdf`로 해제(복호화·제한 제거) 저장, DRM 컨테이너(비PDF)는 인가 뷰어→Print to PDF 안내. PDF는 Office 미사용이라 예열 워커는 자동 skip. 의존성 `pypdf`(+`cryptography`) 추가(requirements + spec 2종). PDF 해제 스모크 + goal_verify PASS=10 + xref 번들 확인 후 onefile/folder EXE 재빌드·배포(onefile C1B1C0BB…, folder 77D9EAFD…).
+- (2026-06-04) 수정: 회사 보안PC에서 새 빌드가 실행되지 않는 회귀 → 원인은 PDF와 함께 들어온 `cryptography`의 네이티브 Rust 확장(`_rust.pyd`)+cffi(보안PC가 차단). spec `excludes`로 cryptography 제외해 옛 정상 빌드와 동일 네이티브 구성 복원(옛 `_517833e` 바이너리 비교로 확인). pypdf는 순수 파이썬이라 유지 → 평문/RC4/편집제한 PDF 해제 동작, **AES 암호화 PDF만 미지원**. cryptography 없이 pypdf import·RC4 해제를 모사 테스트로 확인.
+- (2026-06-04) 추가: PDF **전용 탭** 신설. PDF가 일괄변환 탭에만 있어 "메뉴가 안 보인다"는 피드백 → 사이드바에 'PDF(보안 해제)' 메뉴/탭 추가(파일 선택→저장 위치→'PDF 보안 해제' 버튼). 일괄변환과 동일 엔진(`_convert_pdf_file`)을 단일 변환 경로로 연결. 인덱스 충돌 방지를 위해 뷰 맨 끝(6번째)에 배치(기존 탭 무영향). GUI 구성 스모크(PDF_UI_OK)+goal_verify PASS=10 후 재빌드·배포(onefile 021F6018…, folder E3F333DB…).
 - 로그 파일은 매 줄 즉시 flush하며, PPT/Excel 원본 복사 `SaveCopyAs`가 길어지면 10초마다 진행 중 로그를 남긴다.
 - PPT/Excel/Word 원본 복사 결과가 OpenXML ZIP인지 검증한다. DRM 컨테이너(`SCDS`)처럼 확장자만 Office 파일인 결과는 완료 처리하지 않는다.
 - PPT/Excel 원본 복사 검증 실패 시 자동으로 재구성 경로로 전환한다.
