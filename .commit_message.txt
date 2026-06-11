@@ -1,1 +1,6 @@
-🔧 빌드 ID를 2026-06-11-droptab-fix로 갱신 (드롭 버그 수정 포함 빌드 식별)
+✨ 한글 드래그앤드롭·일괄변환 통합 + SAC 우회 설치형(Inno Setup) 추가
+
+- 한글 통합: 저장 로직을 _hwp_write_with_fallbacks(공용)로 분리, _convert_hwp_file로 원본 Open→메모리 추출. _batch_file_kind/_convert_direct_file/_extract_batch에 hwp 분기 → PPT/Excel/Word/PDF처럼 드래그앤드롭·일괄변환 지원. 한글 탭에 드롭 바인딩.
+- 설치형: installer.iss 추가. PyInstaller onedir(폴더배포)를 Inno Setup으로 Setup.exe 1개 패키징. 설치 폴더에서 직접 실행 → %TEMP% 자가추출 없어 Windows Smart App Control 통과(스샷/녹취 폴더배포와 동일 원리). PrivilegesRequired=lowest(관리자 불필요), 제거 시 설치폴더 전체 정리.
+- version_info.txt + spec: exe 버전 메타데이터 추가(부가).
+- 검증: py_compile + 통합 스모크 + goal_verify PASS=10.

@@ -41,6 +41,7 @@ exe = EXE(
     a.datas,
     [],
     name='DocumentExtractor_v3',
+    version='version_info.txt',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-11-droptab-fix"
+APP_BUILD_ID = "2026-06-11-hwp-unify"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -1733,42 +1733,67 @@ class DocumentExtractorV3:
         self.logger.log(f"한글 추출 완료({method_label}): {result_path}")
         self._log_elapsed("한글 전체 추출 시간", extract_start)
 
-    def _hwp_save_with_fallbacks(self, hwp, save_path, save_format, extract_start):
-        """연결된 한글 문서를 3단계 폴백으로 저장한다.
+    def _hwp_write_with_fallbacks(self, hwp, save_path, save_format):
+        """연결된 한글 문서를 3단계 폴백으로 저장하고 (결과경로, 방법)을 반환한다.
 
         (1) 직접 SaveAs → (2) HWPML2X 메모리 재구성 → (3) HWPML2X 직접 .hwpml 기록.
-        SaveAs는 DRM에서 SCDS로 감기므로, 메모리 추출(GetTextFile) 경로가 본 우회책이다.
-        열린 문서 방식과 원본 파일 직접 Open 방식이 공유한다.
+        SaveAs는 DRM에서 SCDS로 감기므로 메모리 추출(GetTextFile) 경로가 본 우회책이다.
+        UI 메시지 없이 저장만 하므로 탭/직접/일괄 변환이 공유한다. 3단계 모두 실패 시 예외.
         """
         # 방법 1: 직접 SaveAs (정상 HWP면 성공, DRM이면 SCDS 헤더로 실패 처리됨)
         try:
             self.logger.log(f"방법1 직접 SaveAs 시도: {save_path}")
             self._save_hwp_document(hwp, save_path, save_format)
-            self._hwp_extract_success(save_path, extract_start, "직접 저장")
-            return
+            return save_path, "직접 저장"
         except Exception as save_error:
             self.logger.log(f"방법1 SaveAs 실패(보안 컨테이너 가능성): {str(save_error)[:150]}")
 
         # 방법 2: HWPML2X 메모리 재구성 → 일반 HWP (원본 구조 보존, 파일 저장 우회)
-        self.root.after(0, lambda: self.status_text.set("메모리에서 원본 구조 추출 중..."))
-        self.root.after(0, lambda: self.progress_var.set(60))
         try:
+            self.logger.log("방법2 HWPML2X 메모리 재구성 시도")
             self._hwp_rebuild_via_hwpml(hwp, save_path, save_format)
-            self._hwp_extract_success(save_path, extract_start, "메모리 재구성")
-            return
+            return save_path, "메모리 재구성"
         except Exception as rebuild_error:
             self.logger.log(f"방법2 HWPML2X 재구성 실패: {str(rebuild_error)[:150]}")
 
         # 방법 3: HWPML2X를 파이썬이 직접 .hwpml로 기록 (한글 SaveAs 미사용, 가장 확실한 우회)
-        self.root.after(0, lambda: self.status_text.set("원본 구조를 HWPML로 저장 중..."))
-        self.root.after(0, lambda: self.progress_var.set(80))
+        self.logger.log("방법3 HWPML 직접 저장 시도")
+        hwpml_path = self._hwp_save_hwpml_direct(hwp, save_path)
+        return hwpml_path, "HWPML 직접 저장"
+
+    def _convert_hwp_file(self, source_path, save_path):
+        """원본 HWP 파일을 새 한글 인스턴스로 열어 메모리 추출 후 저장한다(직접/일괄 변환용).
+
+        UI 메시지 없이 동작하며, 완료·오류 안내는 호출자(직접/일괄 변환 흐름)가 담당한다.
+        """
+        if not os.path.exists(source_path):
+            raise Exception(f"원본 파일을 찾을 수 없습니다: {source_path}")
+        save_format = "hwpx" if os.path.splitext(save_path)[1].lower() == ".hwpx" else "hwp"
+        hwp, created = self._get_hwp_app(allow_dispatch=True)
+        self.logger.log(f"한글 파일 변환 시작(created={created}): {source_path}")
         try:
-            hwpml_path = self._hwp_save_hwpml_direct(hwp, save_path)
-            self._hwp_extract_success(
-                hwpml_path, extract_start, "HWPML 직접 저장",
-                extra="원본 구조를 보존한 .hwpml 파일입니다. 한글에서 열어 .hwp로 다시 저장할 수 있습니다.",
-            )
-            return
+            try:
+                opened = hwp.Open(source_path, "HWP", "forceopen:true")
+            except Exception as open_error:
+                self.logger.log(f"Open(3인자) 실패, 단순 Open 재시도: {str(open_error)[:100]}")
+                opened = hwp.Open(source_path)
+            if opened is False:
+                raise Exception("한글이 원본 파일을 열지 못했습니다(보안 차단 가능성).")
+            result_path, method = self._hwp_write_with_fallbacks(hwp, save_path, save_format)
+            self.logger.log(f"한글 파일 변환 완료({method}): {result_path}")
+        finally:
+            if created:
+                try:
+                    hwp.Quit()
+                except Exception:
+                    pass
+
+    def _hwp_save_with_fallbacks(self, hwp, save_path, save_format, extract_start):
+        """탭 변환용: 3단계 폴백 저장 + 진행바/완료 안내."""
+        self.root.after(0, lambda: self.status_text.set("메모리에서 원본 구조 추출 중..."))
+        self.root.after(0, lambda: self.progress_var.set(60))
+        try:
+            result_path, method = self._hwp_write_with_fallbacks(hwp, save_path, save_format)
         except Exception as hwpml_error:
             self.logger.log(f"방법3 HWPML 직접 저장 실패: {str(hwpml_error)[:150]}")
             raise Exception(
@@ -1776,6 +1801,10 @@ class DocumentExtractorV3:
                 "직접 저장·메모리 재구성·HWPML 추출이 모두 막혔습니다.\n"
                 "회사 보안(DRM)이 메모리 추출까지 차단하는 환경일 수 있습니다."
             )
+        extra = ""
+        if result_path.lower().endswith(".hwpml"):
+            extra = "원본 구조를 보존한 .hwpml 파일입니다. 한글에서 열어 .hwp로 다시 저장할 수 있습니다."
+        self._hwp_extract_success(result_path, extract_start, method, extra=extra)
 
     def _extract_hwp_from_file(self, source_path, save_path, save_format, extract_start):
         """원본 HWP 파일을 새 한글 인스턴스로 직접 열어 메모리에서 추출/재구성한다.
@@ -2071,7 +2100,8 @@ class DocumentExtractorV3:
                   foreground="#555").pack(anchor=tk.W, pady=(0, 6))
         source_inner = ttk.Frame(source_frame)
         source_inner.pack(fill=tk.X)
-        ttk.Entry(source_inner, textvariable=self.hwp_source_path, width=45).pack(side=tk.LEFT, padx=(0, 5))
+        self.hwp_source_entry = ttk.Entry(source_inner, textvariable=self.hwp_source_path, width=45)
+        self.hwp_source_entry.pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(source_inner, text="원본 찾기", command=self.browse_hwp_source_path).pack(side=tk.LEFT)
 
         # ② 대안: 열린 한글 문서 선택
@@ -2268,6 +2298,12 @@ class DocumentExtractorV3:
                 ".docx" if self.notepad_save_format.get() == "docx" else ".txt",
             ),
         )
+        self._register_drop_target(
+            self.hwp_source_entry,
+            lambda event: self._handle_direct_file_drop(
+                event, "hwp", self.hwp_source_path, self.hwp_save_path, "한글"
+            ),
+        )
         for widget in (self.batch_tab, self.batch_file_listbox):
             self._register_drop_target(widget, self._handle_batch_file_drop)
         self.logger.log("드래그앤드롭 활성화")
@@ -2438,6 +2474,9 @@ class DocumentExtractorV3:
             return
         if kind == "pdf":
             self._convert_pdf_file(source_path, save_path)
+            return
+        if kind == "hwp":
+            self._convert_hwp_file(source_path, save_path)
             return
         if kind in {"ppt", "excel", "word"}:
             label = {"ppt": "PPT", "excel": "Excel", "word": "Word"}[kind]
@@ -5606,6 +5645,8 @@ class DocumentExtractorV3:
             return "word"
         if ext in {".pdf"}:
             return "pdf"
+        if ext in {".hwp", ".hwpx"}:
+            return "hwp"
         if ext in {".txt"}:
             return "text"
         return None
@@ -5620,6 +5661,8 @@ class DocumentExtractorV3:
             return ".docx"
         if kind == "pdf":
             return ".pdf"
+        if kind == "hwp":
+            return source_ext if source_ext in {".hwp", ".hwpx"} else ".hwp"
         return ".txt"
 
     def _make_unique_output_path(self, output_dir, source_path, kind):
@@ -6202,6 +6245,8 @@ class DocumentExtractorV3:
                         self._batch_convert_word_file(word_app, source_path, target_path)
                     elif kind == "pdf":
                         self._convert_pdf_file(source_path, target_path)
+                    elif kind == "hwp":
+                        self._convert_hwp_file(source_path, target_path)
                     elif kind == "text":
                         self._batch_convert_text_file(source_path, target_path)
                     successes.append(target_path)
