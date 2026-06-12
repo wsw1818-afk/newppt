@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-12-hwp-autoenter"
+APP_BUILD_ID = "2026-06-12-batch-hwp"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -386,7 +386,7 @@ class DocumentExtractorV3:
         ttk.Label(header_frame, text="문서 추출 도구 v3", style="Title.TLabel").pack(anchor=tk.W)
         ttk.Label(
             header_frame,
-            text="PPT, Excel, Word, 메모장, PDF를 파일 또는 열린 문서에서 가져와 새 파일로 내보냅니다.",
+            text="PPT, Excel, Word, 한글(HWP), 메모장, PDF를 파일 또는 열린 문서에서 가져와 새 파일로 내보냅니다.",
             style="Subtitle.TLabel",
         ).pack(anchor=tk.W, pady=(2, 0))
 
@@ -5611,7 +5611,7 @@ class DocumentExtractorV3:
         file_frame = self._create_section(tab, "변환할 파일")
         ttk.Label(
             file_frame,
-            text="PPT, Excel, Word, TXT 파일을 여러 개 추가할 수 있습니다. HWP는 제외됩니다.",
+            text="PPT, Excel, Word, 한글(HWP), PDF, TXT 파일을 여러 개 추가할 수 있습니다.",
         ).pack(anchor=tk.W, pady=(0, 6))
 
         list_frame = ttk.Frame(file_frame, style="Card.TFrame")
@@ -5771,10 +5771,11 @@ class DocumentExtractorV3:
         paths = filedialog.askopenfilenames(
             title="일괄 변환할 파일 선택",
             filetypes=[
-                ("지원 문서", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx;*.xls;*.xlsx;*.xlsm;*.xlsb;*.doc;*.docx;*.docm;*.pdf;*.txt"),
+                ("지원 문서", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx;*.xls;*.xlsx;*.xlsm;*.xlsb;*.doc;*.docx;*.docm;*.hwp;*.hwpx;*.pdf;*.txt"),
                 ("PowerPoint", "*.ppt;*.pptx;*.pptm;*.ppsx;*.potx"),
                 ("Excel", "*.xls;*.xlsx;*.xlsm;*.xlsb"),
                 ("Word", "*.doc;*.docx;*.docm"),
+                ("한글", "*.hwp;*.hwpx"),
                 ("PDF", "*.pdf"),
                 ("텍스트", "*.txt"),
                 ("모든 파일", "*.*"),

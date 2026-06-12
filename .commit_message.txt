@@ -1,8 +1,7 @@
-✨ 한글 보안 접근 대화상자 자동 통과(Enter=접근 허용) — 개발 PC 실검증
+✨ 일괄 변환에 한글(HWP) 파일 등록 가능하게
 
-- 한컴 보안 '파일 접근 권한' 대화상자는 WPF(HwndWrapper[Hwp.exe])로 그려져 Win32 버튼이 윈도우 트리에 없음 → BM_CLICK 불가. 단축키 'A'도 PC마다 모두허용/허용안함으로 뒤바뀌어(개발=거부) 위험.
-- 해결: 기본 버튼 '접근 허용'(양쪽 PC 공통, Enter)을 키 입력으로 통과. _auto_approve_hwp_access를 'GW_OWNER로 소유된 한글 모달 감지 → keybd_event(Enter)'로 구현(1초 쿨다운, 문서 창 제외). 버전 무관하도록 owner 제목이 '… - 한글'이거나 fg 클래스에 Hwp.exe면 대상.
-- _convert_hwp_file/_extract_hwp_from_file 두 경로에 watcher 시작·중지 배선.
-- 개발 PC 실검증(로그): 변환 시작 → 0.3초 만에 '대화상자 감지 → Enter 전송' → 변환 완료. 70초 멈춤 사라짐. TEST_OK 172KB 일반 HWP.
-- 회사 PC는 한글 버전이 달라 최종 확인 필요(감지를 버전 무관으로 보강해 대비).
-- APP_BUILD_ID=2026-06-12-hwp-autoenter.
+- 일괄 변환 로직(_batch_file_kind/_batch_target_extension/_extract_batch→_convert_hwp_file, 드롭·폴더 추가)은 이미 hwp 지원했으나, '파일 추가' 다이얼로그 필터에 .hwp/.hwpx가 빠져 선택이 안 됐음.
+- add_batch_files 필터 '지원 문서'에 *.hwp;*.hwpx 추가 + '한글' 전용 필터 추가.
+- 일괄 탭 안내 문구 'HWP는 제외됩니다' → 'PPT, Excel, Word, 한글(HWP), PDF, TXT' (PDF도 빠져 있던 것 함께 정정). 메인 안내에도 한글 추가.
+- 한글 변환은 _convert_hwp_file 경로라 보안 접근 대화상자 Enter 자동통과(watcher)도 일괄에 그대로 적용.
+- APP_BUILD_ID=2026-06-12-batch-hwp.
