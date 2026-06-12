@@ -1,1 +1,6 @@
-🐛 추출 오류 미표시(NameError)·임시파일 누수·셀/경로/Word 서식 등 검증된 버그 다수 수정
+🐛 한글 변환 후 '변환된 문서 저장할까요?' 창 제거 — Quit 전 문서를 저장 안 함으로 닫음
+
+- 증상(회사 PC): 변환·자동통과는 되나 hwp.Quit() 시 '변환된 문서 저장할까요?' 대화상자가 떠서 막힘. forceopen으로 연 원본/재구성 문서가 '수정됨'으로 남고, access watcher는 Quit 전 멈춰서 처리 못 함(게다가 저장창에 Enter는 '저장'이 눌릴 위험).
+- 해결: _hwp_quit_no_save — 열린 문서를 모두 Close(0)(저장 안 함)으로 닫은 뒤 Quit. _convert_hwp_file/_extract_hwp_from_file의 Quit을 이걸로 교체. 출력 파일은 이미 별도 기록됨.
+- 검증(개발 PC): ① dirty 문서(BreakPara) → _hwp_quit_no_save 0.4초 종료(저장창 없음, 막혔으면 타임아웃) ② 전체 변환 회귀 TEST_OK + 한글 프로세스 0개(깨끗 종료).
+- APP_BUILD_ID=2026-06-12-hwp-nosaveprompt.
