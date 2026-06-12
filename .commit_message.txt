@@ -1,7 +1,6 @@
-✨ 일괄 변환에 한글(HWP) 파일 등록 가능하게
+✨ 한글 보안 대화상자: 클릭 없이 자동 통과 — 포그라운드 안 와도 끌어올려 Enter
 
-- 일괄 변환 로직(_batch_file_kind/_batch_target_extension/_extract_batch→_convert_hwp_file, 드롭·폴더 추가)은 이미 hwp 지원했으나, '파일 추가' 다이얼로그 필터에 .hwp/.hwpx가 빠져 선택이 안 됐음.
-- add_batch_files 필터 '지원 문서'에 *.hwp;*.hwpx 추가 + '한글' 전용 필터 추가.
-- 일괄 탭 안내 문구 'HWP는 제외됩니다' → 'PPT, Excel, Word, 한글(HWP), PDF, TXT' (PDF도 빠져 있던 것 함께 정정). 메인 안내에도 한글 추가.
-- 한글 변환은 _convert_hwp_file 경로라 보안 접근 대화상자 Enter 자동통과(watcher)도 일괄에 그대로 적용.
-- APP_BUILD_ID=2026-06-12-batch-hwp.
+- 증상(회사 PC): 변환은 되는데 한글창을 클릭해야 입력이 먹음. 원인: 대화상자가 뒤에 뜨면 watcher가 GetForegroundWindow로만 감지해 못 잡고, keybd_event도 포그라운드에만 입력이 가서 사용자 클릭이 필요했음.
+- 해결: _find_hwp_access_dialog로 창 목록(EnumWindows)을 직접 뒤져 '한글 문서 창에 소유된(GW_OWNER) 모달'을 포그라운드 무관하게 탐지. _send_enter_to_hwp_dialog가 AttachThreadInput으로 포그라운드 잠금을 풀고 대화상자를 BringWindowToTop+SetForegroundWindow로 끌어올린 뒤 Enter. WPF 대비 PostMessage(WM_KEYDOWN/UP)도 대화상자 핸들에 직접 전송.
+- 검증(개발 PC): ① 일괄 한글 2개 e2e — 각 파일 대화상자 자동 감지→Enter, 성공 2/2 ② 격리 테스트 — 앱 창을 포그라운드로 두고(대화상자 비활성) _auto_approve 호출 → enum 탐지→끌어올림→Enter→대화상자 닫힘 확인.
+- APP_BUILD_ID=2026-06-12-hwp-fg-enter.

@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-12-batch-hwp"
+APP_BUILD_ID = "2026-06-12-hwp-fg-enter"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -647,37 +647,82 @@ class DocumentExtractorV3:
         )
 
     def _auto_approve_hwp_access(self):
-        """포그라운드가 한글 보안 접근 대화상자(메인 창에 소유된 WPF 모달)면 Enter를 보낸다.
+        """한글 보안 접근 대화상자를 찾아 포그라운드로 끌어올린 뒤 Enter(접근 허용)를 보낸다.
 
         회사 보안 PC에서 한글이 원본 파일을 열 때 띄우는 '접근 허용/모두 허용/허용 안 함/
-        모두 안 함' 대화상자는 WPF(HwndWrapper[Hwp.exe])로 그려져 Win32 버튼 클릭이 불가능하다
-        (윈도우 트리에 버튼 컨트롤이 없음). 대신 기본 버튼 '접근 허용'(양쪽 PC 공통, Enter)을
-        키 입력으로 누른다. 단축키 'A'는 PC마다 '모두 허용'/'허용 안 함'으로 뒤바뀌므로 절대
-        쓰지 않는다. 대상은 '메인 한글 창에 소유된 HwndWrapper 모달'로 엄격히 한정해 문서 창에
-        Enter가 들어가는 일을 막고, 1초 쿨다운으로 연타를 방지한다.
+        모두 안 함' 대화상자는 WPF(HwndWrapper[Hwp.exe])로 그려져 Win32 버튼 클릭이 불가능하다.
+        대신 기본 버튼 '접근 허용'(양쪽 PC 공통)을 Enter로 누른다. 단축키 'A'는 PC마다
+        '모두 허용'/'허용 안 함'으로 뒤바뀌므로 절대 쓰지 않는다.
+
+        포그라운드(GetForegroundWindow)에만 의존하면 대화상자가 뒤에 떠 있을 때(회사 PC) 사용자가
+        한글 창을 클릭해야만 입력이 먹는다. 그래서 창 목록을 직접 뒤져 '한글 문서 창에 소유된 모달'을
+        찾고, 포그라운드 잠금을 풀어 대화상자를 앞으로 끌어올린 뒤 Enter를 보낸다(클릭 불필요).
+        1초 쿨다운으로 연타를 막는다.
         """
-        user32 = ctypes.windll.user32
-        fg = user32.GetForegroundWindow()
-        if not fg:
+        dialog = self._find_hwp_access_dialog()
+        if not dialog:
             return False
-        owner = user32.GetWindow(fg, 4)  # GW_OWNER — 소유된 팝업(=대화상자)만
-        if not owner:
-            return False  # 메인 문서 창(소유자 없음)에는 Enter를 보내지 않음
-        if self._is_hwp_window_title(self._get_window_title(fg)):
-            return False  # 포그라운드가 한글 문서 창이면 제외
-        # 한글 버전 무관: '한글 문서 창에 소유된 모달' 또는 한글 WPF 창
-        owner_is_hwp = self._is_hwp_window_title(self._get_window_title(owner))
-        fg_is_hwp = "Hwp.exe" in (self._get_window_class_name(fg) or "")
-        if not (owner_is_hwp or fg_is_hwp):
-            return False  # 한글이 띄운 접근 대화상자가 아님
         now = time.monotonic()
         if now - getattr(self, "_hwp_access_last_enter", 0.0) < 1.0:
             return False  # 쿨다운(연타 방지)
         self._hwp_access_last_enter = now
-        user32.keybd_event(0x0D, 0, 0, 0)   # VK_RETURN down
-        user32.keybd_event(0x0D, 0, 2, 0)   # VK_RETURN up (KEYEVENTF_KEYUP)
+        self._send_enter_to_hwp_dialog(dialog)
         self.logger.log("한컴 보안 접근 대화상자 감지 → Enter(접근 허용) 전송")
         return True
+
+    def _find_hwp_access_dialog(self):
+        """포그라운드와 무관하게, 한글 문서 창에 소유된 보안 접근 모달의 핸들을 찾는다.
+
+        대화상자는 top-level이지만 소유자(GW_OWNER)가 한글 문서 창인 팝업이다. 문서 창 자체
+        ('… - 한글')는 제외하고, 소유자가 한글이거나 자기 클래스가 Hwp.exe(WPF)면 대상이다.
+        """
+        user32 = ctypes.windll.user32
+        for hwnd, title in self._get_visible_windows():
+            if self._is_hwp_window_title(title):
+                continue  # 한글 문서 창 자체는 제외
+            owner = user32.GetWindow(hwnd, 4)  # GW_OWNER — 소유된 팝업만
+            if not owner:
+                continue
+            owner_is_hwp = self._is_hwp_window_title(self._get_window_title(owner))
+            self_is_hwp = "Hwp.exe" in (self._get_window_class_name(hwnd) or "")
+            if owner_is_hwp or self_is_hwp:
+                return hwnd
+        return None
+
+    def _send_enter_to_hwp_dialog(self, hwnd):
+        """대화상자를 포그라운드로 끌어올린 뒤 Enter를 보낸다(포그라운드 잠금 우회 포함).
+
+        keybd_event는 포그라운드 창에만 입력이 가므로, AttachThreadInput으로 잠금을 풀고
+        대화상자를 앞으로 가져온다(사용자가 한글 창을 클릭하지 않아도 입력이 먹게). WPF가 전역
+        키를 못 받는 환경을 대비해 창에 직접 WM_KEYDOWN/WM_KEYUP(Enter)도 PostMessage로 보낸다.
+        """
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        try:
+            cur_tid = kernel32.GetCurrentThreadId()
+            fg = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+            tgt_tid = user32.GetWindowThreadProcessId(hwnd, None)
+            attached_fg = bool(fg_tid) and fg_tid != cur_tid and bool(user32.AttachThreadInput(fg_tid, cur_tid, True))
+            attached_tgt = bool(tgt_tid) and tgt_tid != cur_tid and bool(user32.AttachThreadInput(tgt_tid, cur_tid, True))
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetFocus(hwnd)
+            if attached_tgt:
+                user32.AttachThreadInput(tgt_tid, cur_tid, False)
+            if attached_fg:
+                user32.AttachThreadInput(fg_tid, cur_tid, False)
+        except Exception:
+            pass
+        # 1) 전역 키 입력(이제 대화상자가 포그라운드)
+        user32.keybd_event(0x0D, 0, 0, 0)   # VK_RETURN down
+        user32.keybd_event(0x0D, 0, 2, 0)   # VK_RETURN up (KEYEVENTF_KEYUP)
+        # 2) 폴백: 대화상자 창에 직접 키 메시지(WPF HwndSource 처리). 대상이 명확해 문서엔 안 감.
+        try:
+            user32.PostMessageW(hwnd, 0x0100, 0x0D, 0)  # WM_KEYDOWN VK_RETURN
+            user32.PostMessageW(hwnd, 0x0101, 0x0D, 0)  # WM_KEYUP VK_RETURN
+        except Exception:
+            pass
 
     def _start_hwp_access_watcher(self):
         """변환 동안 한컴 보안 접근 대화상자를 감시해 Enter(접근 허용)로 자동 통과시키는 스레드 시작.
