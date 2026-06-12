@@ -24,7 +24,7 @@ import base64
 import ctypes
 from ctypes import wintypes
 
-APP_BUILD_ID = "2026-06-12-hwp-fg-enter"
+APP_BUILD_ID = "2026-06-12-hwp-nosaveprompt"
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -1856,6 +1856,32 @@ class DocumentExtractorV3:
         hwpml_path = self._hwp_save_hwpml_direct(hwp, save_path)
         return hwpml_path, "HWPML 직접 저장"
 
+    def _hwp_quit_no_save(self, hwp):
+        """저장 확인 대화상자 없이 한글을 종료한다.
+
+        forceopen으로 연 원본 문서(및 재구성 문서)가 '수정됨'으로 표시돼 hwp.Quit() 시
+        '변환된 문서 저장할까요?'가 뜨던 문제를 방지한다. 열린 문서를 모두 '저장 안 함'(Close(0))으로
+        닫은 뒤 종료한다. 출력 파일은 이미 별도로 기록되었으므로 원본/재구성 문서는 버려도 된다.
+        """
+        try:
+            for _ in range(30):  # 안전 상한
+                try:
+                    doc = hwp.XHwpDocuments.Active_XHwpDocument
+                except Exception:
+                    break
+                if not doc:
+                    break
+                try:
+                    doc.Close(0)  # 0 = 저장하지 않고 닫음(프롬프트 없음)
+                except Exception:
+                    break
+        except Exception:
+            pass
+        try:
+            hwp.Quit()
+        except Exception:
+            pass
+
     def _convert_hwp_file(self, source_path, save_path):
         """원본 HWP 파일을 새 한글 인스턴스로 열어 메모리 추출 후 저장한다(직접/일괄 변환용).
 
@@ -1880,10 +1906,7 @@ class DocumentExtractorV3:
         finally:
             access_watcher.set()
             if created:
-                try:
-                    hwp.Quit()
-                except Exception:
-                    pass
+                self._hwp_quit_no_save(hwp)
 
     def _hwp_save_with_fallbacks(self, hwp, save_path, save_format, extract_start):
         """탭 변환용: 3단계 폴백 저장 + 진행바/완료 안내."""
@@ -1932,10 +1955,7 @@ class DocumentExtractorV3:
         finally:
             access_watcher.set()
             if created:
-                try:
-                    hwp.Quit()
-                except Exception:
-                    pass
+                self._hwp_quit_no_save(hwp)
 
     def _copy_word_document_file(self, source_doc, save_path):
         """저장된 Word 원본 파일을 원본 상태 변경 없이 복사한다."""

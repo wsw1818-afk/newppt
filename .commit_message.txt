@@ -1,6 +1,6 @@
-✨ 한글 보안 대화상자: 클릭 없이 자동 통과 — 포그라운드 안 와도 끌어올려 Enter
+🐛 한글 변환 후 '변환된 문서 저장할까요?' 창 제거 — Quit 전 문서를 저장 안 함으로 닫음
 
-- 증상(회사 PC): 변환은 되는데 한글창을 클릭해야 입력이 먹음. 원인: 대화상자가 뒤에 뜨면 watcher가 GetForegroundWindow로만 감지해 못 잡고, keybd_event도 포그라운드에만 입력이 가서 사용자 클릭이 필요했음.
-- 해결: _find_hwp_access_dialog로 창 목록(EnumWindows)을 직접 뒤져 '한글 문서 창에 소유된(GW_OWNER) 모달'을 포그라운드 무관하게 탐지. _send_enter_to_hwp_dialog가 AttachThreadInput으로 포그라운드 잠금을 풀고 대화상자를 BringWindowToTop+SetForegroundWindow로 끌어올린 뒤 Enter. WPF 대비 PostMessage(WM_KEYDOWN/UP)도 대화상자 핸들에 직접 전송.
-- 검증(개발 PC): ① 일괄 한글 2개 e2e — 각 파일 대화상자 자동 감지→Enter, 성공 2/2 ② 격리 테스트 — 앱 창을 포그라운드로 두고(대화상자 비활성) _auto_approve 호출 → enum 탐지→끌어올림→Enter→대화상자 닫힘 확인.
-- APP_BUILD_ID=2026-06-12-hwp-fg-enter.
+- 증상(회사 PC): 변환·자동통과는 되나 hwp.Quit() 시 '변환된 문서 저장할까요?' 대화상자가 떠서 막힘. forceopen으로 연 원본/재구성 문서가 '수정됨'으로 남고, access watcher는 Quit 전 멈춰서 처리 못 함(게다가 저장창에 Enter는 '저장'이 눌릴 위험).
+- 해결: _hwp_quit_no_save — 열린 문서를 모두 Close(0)(저장 안 함)으로 닫은 뒤 Quit. _convert_hwp_file/_extract_hwp_from_file의 Quit을 이걸로 교체. 출력 파일은 이미 별도 기록됨.
+- 검증(개발 PC): ① dirty 문서(BreakPara) → _hwp_quit_no_save 0.4초 종료(저장창 없음, 막혔으면 타임아웃) ② 전체 변환 회귀 TEST_OK + 한글 프로세스 0개(깨끗 종료).
+- APP_BUILD_ID=2026-06-12-hwp-nosaveprompt.
